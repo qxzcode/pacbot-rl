@@ -208,6 +208,8 @@ impl PacmanGym {
 
     /// Returns an observation for the value network.
     pub fn obs(&self) -> tch::Tensor {
+        #![allow(unused_must_use)] // silence bogus warnings for in-place Tensor operations
+
         let grid_vec: Vec<u8> = self
             .game_state
             .grid

@@ -1,5 +1,3 @@
-use std::borrow::Borrow;
-
 use num_enum::TryFromPrimitive;
 use ordered_float::NotNan;
 use pyo3::prelude::*;
@@ -183,7 +181,12 @@ impl MCTSContext {
 
     /// Performs MCTS iterations to grow the tree to (approximately) the given size,
     /// then returns the best action.
-    pub fn ponder_and_choose(&mut self, env: &PacmanGym, max_tree_size: usize, use_net: bool) -> Action {
+    pub fn ponder_and_choose(
+        &mut self,
+        env: &PacmanGym,
+        max_tree_size: usize,
+        use_net: bool,
+    ) -> Action {
         let q_net = self.q_net.take();
 
         let num_iterations = max_tree_size.saturating_sub(self.node_count());
@@ -209,7 +212,12 @@ impl MCTSContext {
     /// Samples a move that a player might make from a state, updating the search tree.
     /// Returns the return (cumulative reward; based on the search steps taken and the
     /// leaf evaluation).
-    pub fn sample_move(&mut self, mut env: PacmanGym, q_net: &tch::CModule, use_net: bool) -> Return {
+    pub fn sample_move(
+        &mut self,
+        mut env: PacmanGym,
+        q_net: &tch::CModule,
+        use_net: bool,
+    ) -> Return {
         if env.is_done() {
             0.0
         } else {

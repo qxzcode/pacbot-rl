@@ -1,0 +1,11 @@
+# Python
+.pytest_cache/
+__pycache__/
+.mypy_cache/
+*.pyc
+
+# IDE
+.vscode/
+
+# Artifacts
+wandb/

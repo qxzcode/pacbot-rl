@@ -142,6 +142,36 @@ files = [
 ]
 
 [[package]]
+name = "maturin"
+version = "1.3.0"
+description = "Build and publish crates with pyo3, rust-cpython and cffi bindings as well as rust binaries as python packages"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "maturin-1.3.0-py3-none-linux_armv6l.whl", hash = "sha256:dcc292547986fa93254b07d6d9f01a417b46a3fa55d5c45db65e71b285922f26"},
+    {file = "maturin-1.3.0-py3-none-macosx_10_7_x86_64.whl", hash = "sha256:d612878b75bb60946a45e9534bfd9e759e84d68cc6afe8d46c572d0c3b17bb4e"},
+    {file = "maturin-1.3.0-py3-none-macosx_10_9_x86_64.macosx_11_0_arm64.macosx_10_9_universal2.whl", hash = "sha256:f319b89025632099b197a686251f25def39f982f44474b8ba66c6d5f7e6abcde"},
+    {file = "maturin-1.3.0-py3-none-manylinux_2_12_i686.manylinux2010_i686.musllinux_1_1_i686.whl", hash = "sha256:f2dfe86b37f7747712f3a910e3321e955efabe2c0e1de19563cea8d05bbee5b6"},
+    {file = "maturin-1.3.0-py3-none-manylinux_2_12_x86_64.manylinux2010_x86_64.musllinux_1_1_x86_64.whl", hash = "sha256:2686f747980c9ef4a278542b209504b03c7576487b13b9655a6cbd40f3b98a73"},
+    {file = "maturin-1.3.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.musllinux_1_1_aarch64.whl", hash = "sha256:91ab057ae8d8992ad3a4312e8f379cbe1a8a3289f7d2a58969407e94355bfccc"},
+    {file = "maturin-1.3.0-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.musllinux_1_1_armv7l.whl", hash = "sha256:05639678b78a0df1abb4542925ee3eb5fc91ff3846878d584db8c7a6dbf2f54f"},
+    {file = "maturin-1.3.0-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.musllinux_1_1_ppc64le.whl", hash = "sha256:416b0a48b8785555c5060d6fec97f69545c92ffe24df074c8a716d83fa8ab66b"},
+    {file = "maturin-1.3.0-py3-none-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:329820228baa9158d69c8e36e2fd3d7df3163a66df8ae739caa6cb5289955646"},
+    {file = "maturin-1.3.0-py3-none-win32.whl", hash = "sha256:1b6b3a4d28c168a7a4773a406effb71c6245400e3d1fb08db3ebc5706669c706"},
+    {file = "maturin-1.3.0-py3-none-win_amd64.whl", hash = "sha256:84d9136cd241868a8c57116f6bc20e4560b70e96c60fefc3bcbc7ad15dbb7eb7"},
+    {file = "maturin-1.3.0-py3-none-win_arm64.whl", hash = "sha256:777bd6b5a6b6fdafcef69168c3938f35efba6e8ca3e7657940dfca4fa077920f"},
+    {file = "maturin-1.3.0.tar.gz", hash = "sha256:f6c69bc7ae147a5effd55587447b35cab1ceb726ba244d08698bc7518b8688ac"},
+]
+
+[package.dependencies]
+patchelf = {version = "*", optional = true, markers = "extra == \"patchelf\""}
+tomli = {version = ">=1.1.0", markers = "python_version < \"3.11\""}
+
+[package.extras]
+patchelf = ["patchelf"]
+zig = ["ziglang (>=0.10.0,<0.11.0)"]
+
+[[package]]
 name = "mpmath"
 version = "1.3.0"
 description = "Python library for arbitrary-precision floating-point arithmetic"
@@ -215,6 +245,25 @@ files = [
 ]
 
 [[package]]
+name = "patchelf"
+version = "0.17.2.1"
+description = "A small utility to modify the dynamic linker and RPATH of ELF executables."
+optional = false
+python-versions = "*"
+files = [
+    {file = "patchelf-0.17.2.1-py2.py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.musllinux_1_1_aarch64.whl", hash = "sha256:fc329da0e8f628bd836dfb8eaf523547e342351fa8f739bf2b3fe4a6db5a297c"},
+    {file = "patchelf-0.17.2.1-py2.py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.musllinux_1_1_armv7l.whl", hash = "sha256:ccb266a94edf016efe80151172c26cff8c2ec120a57a1665d257b0442784195d"},
+    {file = "patchelf-0.17.2.1-py2.py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.musllinux_1_1_ppc64le.whl", hash = "sha256:f47b5bdd6885cfb20abdd14c707d26eb6f499a7f52e911865548d4aa43385502"},
+    {file = "patchelf-0.17.2.1-py2.py3-none-manylinux_2_17_s390x.manylinux2014_s390x.musllinux_1_1_s390x.whl", hash = "sha256:a9e6ebb0874a11f7ed56d2380bfaa95f00612b23b15f896583da30c2059fcfa8"},
+    {file = "patchelf-0.17.2.1-py2.py3-none-manylinux_2_5_i686.manylinux1_i686.musllinux_1_1_i686.whl", hash = "sha256:3c8d58f0e4c1929b1c7c45ba8da5a84a8f1aa6a82a46e1cfb2e44a4d40f350e5"},
+    {file = "patchelf-0.17.2.1-py2.py3-none-manylinux_2_5_x86_64.manylinux1_x86_64.musllinux_1_1_x86_64.whl", hash = "sha256:d1a9bc0d4fd80c038523ebdc451a1cce75237cfcc52dbd1aca224578001d5927"},
+    {file = "patchelf-0.17.2.1.tar.gz", hash = "sha256:a6eb0dd452ce4127d0d5e1eb26515e39186fa609364274bc1b0b77539cfa7031"},
+]
+
+[package.extras]
+test = ["importlib-metadata", "pytest"]
+
+[[package]]
 name = "sympy"
 version = "1.12"
 description = "Computer algebra system (CAS) in Python"
@@ -231,6 +280,17 @@ mpmath = ">=0.19"
 type = "legacy"
 url = "https://download.pytorch.org/whl/cpu"
 reference = "torch-cpu"
+
+[[package]]
+name = "tomli"
+version = "2.0.1"
+description = "A lil' TOML parser"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "tomli-2.0.1-py3-none-any.whl", hash = "sha256:939de3e7a6161af0c887ef91b7d41a53e7c5a1ca976325f429cb46ea9bc30ecc"},
+    {file = "tomli-2.0.1.tar.gz", hash = "sha256:de526c12914f0c550d15924c62d72abc48d6fe7364aa87328337a31007fe8a4f"},
+]
 
 [[package]]
 name = "torch"
@@ -280,4 +340,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "a0f37069cc185fda1062c7f8e774f932321ecda703f99a44308ec7342c062fd7"
+content-hash = "4fdd1da6f2552b13bd05e0eb40ddf31241049a69f828416e1128cea07aa8039a"

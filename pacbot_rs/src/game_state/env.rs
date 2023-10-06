@@ -1,4 +1,6 @@
+use ndarray::{ArrayD, IxDyn};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
+use numpy::{IntoPyArray, PyArray};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rand::seq::SliceRandom;
@@ -49,7 +51,7 @@ pub struct PacmanGym {
     pub random_start: bool,
     last_score: u32,
     last_action: Action,
-    last_ghost_pos: Vec<(usize, usize)>,
+    last_ghost_pos: [(usize, usize); 4],
     last_pos: (usize, usize),
 }
 
@@ -58,18 +60,19 @@ impl PacmanGym {
     #[new]
     pub fn new(random_start: bool) -> Self {
         let game_state = GameState::new();
+        let last_ghost_pos = [
+            game_state.red.borrow().current_pos,
+            game_state.pink.borrow().current_pos,
+            game_state.orange.borrow().current_pos,
+            game_state.blue.borrow().current_pos,
+        ];
         let mut env = Self {
             random_start,
             last_score: 0,
             last_action: Action::Stay,
-            last_ghost_pos: vec![
-                game_state.red.borrow().current_pos,
-                game_state.pink.borrow().current_pos,
-                game_state.orange.borrow().current_pos,
-                game_state.blue.borrow().current_pos,
-            ],
+            last_ghost_pos,
             last_pos: game_state.pacbot.pos,
-            game_state: game_state.clone(),
+            game_state,
         };
         if random_start && RANDOMIZE_GHOSTS {
             for mut ghost in env.game_state.ghosts_mut() {
@@ -97,7 +100,7 @@ impl PacmanGym {
             }
         }
 
-        self.last_ghost_pos = vec![
+        self.last_ghost_pos = [
             self.game_state.red.borrow().current_pos,
             self.game_state.pink.borrow().current_pos,
             self.game_state.orange.borrow().current_pos,
@@ -150,7 +153,7 @@ impl PacmanGym {
             .zip(&new_entity_positions)
             .any(|(e1, e2)| e1 != e2);
         if pos_changed {
-            self.last_ghost_pos.copy_from_slice(&entity_positions);
+            self.last_ghost_pos = entity_positions;
         }
 
         let done = self.is_done();
@@ -187,6 +190,18 @@ impl PacmanGym {
         let pacbot_pos = self.game_state.pacbot.pos;
         let pacbot_node = coords_to_node(pacbot_pos).expect("PacBot is in an invalid location");
         VALID_ACTIONS[pacbot_node]
+    }
+
+    pub fn obs_numpy(&self) -> Py<PyArray<f32, IxDyn>> {
+        let obs = self.obs();
+
+        let mut data = vec![0.0_f32; obs.numel()];
+        obs.copy_data(&mut data, obs.numel());
+
+        let shape: Vec<usize> = obs.size().into_iter().map(|d| d as usize).collect();
+
+        let array = ArrayD::from_shape_vec(IxDyn(&shape), data).unwrap();
+        Python::with_gil(|py| array.into_pyarray(py).into())
     }
 }
 

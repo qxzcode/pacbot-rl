@@ -10,17 +10,17 @@ crate-type = ["cdylib"]
 
 [dependencies]
 array-init = "2.1.0"
-arrayvec = "0.7.2"
+arrayvec = "0.7.4"
 ndarray = "0.15.6"
-num_enum = "0.5.11"
-numpy = "0.18.0"
-ordered-float = "3.6.0"
-phf = "0.11.1"
-pyo3 = "0.18.1"
+num_enum = "0.7.0"
+numpy = "0.19.0"
+ordered-float = "4.1.0"
+phf = "0.11.2"
+pyo3 = "0.19.2"
 rand = "0.8.5"
 static_assertions = "1.1.0"
-tch = "0.11.0"
+tch = "0.14.0"
 
 [build-dependencies]
-npyz = "0.7.4"
-phf_codegen = "0.11.1"
+npyz = "0.8.1"
+phf_codegen = "0.11.2"

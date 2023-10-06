@@ -223,7 +223,7 @@ impl PacmanGym {
             .iter()
             .map(|&cell| (cell == 1 || cell == 5) as u8)
             .collect();
-        let wall = tch::Tensor::of_slice(&wall_vec).reshape(&[grid_width, grid_height]);
+        let wall = tch::Tensor::from_slice(&wall_vec).reshape([grid_width, grid_height]);
 
         let fright = self.game_state.is_frightened();
         let entity_positions = [
@@ -233,15 +233,15 @@ impl PacmanGym {
             self.game_state.blue.borrow().current_pos,
         ];
         let ghost = tch::Tensor::zeros(
-            &[4, grid_width, grid_height],
+            [4, grid_width, grid_height],
             (tch::Kind::Int, tch::Device::Cpu),
         );
         let state = tch::Tensor::zeros(
-            &[3, grid_width, grid_height],
+            [3, grid_width, grid_height],
             (tch::Kind::Float, tch::Device::Cpu),
         );
         let fright_ghost = tch::Tensor::zeros(
-            &[grid_width, grid_height],
+            [grid_width, grid_height],
             (tch::Kind::Float, tch::Device::Cpu),
         );
         for (i, pos) in entity_positions.iter().enumerate() {
@@ -284,11 +284,11 @@ impl PacmanGym {
             _ => 0
         } as f32 / variables::GHOST_SCORE as f32).collect();
         let reward =
-            tch::Tensor::of_slice(&reward_vec).reshape(&[grid_width, grid_height]) + fright_ghost;
+            tch::Tensor::from_slice(&reward_vec).reshape([grid_width, grid_height]) + fright_ghost;
 
         let pac_pos = self.game_state.pacbot.pos;
         let pacman = tch::Tensor::zeros(
-            &[2, grid_width, grid_height],
+            [2, grid_width, grid_height],
             (tch::Kind::Int, tch::Device::Cpu),
         );
         pacman

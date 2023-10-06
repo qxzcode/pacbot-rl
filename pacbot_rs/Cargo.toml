@@ -1,0 +1,26 @@
+[package]
+name = "pacbot_rs"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "pacbot_rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+array-init = "2.1.0"
+arrayvec = "0.7.2"
+ndarray = "0.15.6"
+num_enum = "0.5.11"
+numpy = "0.18.0"
+ordered-float = "3.6.0"
+phf = "0.11.1"
+pyo3 = "0.18.1"
+rand = "0.8.5"
+static_assertions = "1.1.0"
+tch = "0.11.0"
+
+[build-dependencies]
+npyz = "0.7.4"
+phf_codegen = "0.11.1"

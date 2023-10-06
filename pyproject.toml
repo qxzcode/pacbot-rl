@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "pacbot-rl"
+version = "0.1.0"
+description = "Reinforcement learning for the Harvard PacBot competition."
+authors = ["Quinn Tucker <qxzcraft@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+numpy = "^1.25.2"
+torch = "^2.1.0"
+
+
+[[tool.poetry.source]]
+name = "torch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+priority = "primary"
+
+
+[[tool.poetry.source]]
+name = "PyPI"
+priority = "primary"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

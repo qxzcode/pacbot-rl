@@ -235,7 +235,7 @@ impl Default for MCTSContext {
 /// Returns the value of each next action in this state.
 fn eval_actions(env: &PacmanGym, q_net: &tch::CModule) -> Vec<f32> {
     let mask = tch::Tensor::from_slice(&env.action_mask()).to_kind(tch::Kind::Float);
-    ((q_net.forward(&env.obs().unsqueeze(0).unsqueeze(0)) * &mask
+    ((q_net.forward(&env.obs_tch().unsqueeze(0).unsqueeze(0)) * &mask
         + (tch::Tensor::ones(mask.size(), (tch::Kind::Float, tch::Device::Cpu)) - &mask) * -100000)
         .squeeze()
         * variables::GHOST_SCORE as f64)

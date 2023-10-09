@@ -1,14 +1,14 @@
-use ndarray::{ArrayD, IxDyn};
+use itertools::izip;
+use ndarray::{s, Array, Array3};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use numpy::{IntoPyArray, PyArray};
+use numpy::{IntoPyArray, PyArray3};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rand::seq::SliceRandom;
-use tch::IndexOp;
 
 use crate::{
     grid::{self, coords_to_node, NODE_COORDS, VALID_ACTIONS},
-    variables,
+    variables::{self, GridValue},
 };
 
 use super::GameState;
@@ -192,16 +192,9 @@ impl PacmanGym {
         VALID_ACTIONS[pacbot_node]
     }
 
-    pub fn obs_numpy(&self) -> Py<PyArray<f32, IxDyn>> {
-        let obs = self.obs();
-
-        let mut data = vec![0.0_f32; obs.numel()];
-        obs.copy_data(&mut data, obs.numel());
-
-        let shape: Vec<usize> = obs.size().into_iter().map(|d| d as usize).collect();
-
-        let array = ArrayD::from_shape_vec(IxDyn(&shape), data).unwrap();
-        Python::with_gil(|py| array.into_pyarray(py).into())
+    /// Returns an observation array/tensor constructed from the game state.
+    pub fn obs_numpy(&self, py: Python<'_>) -> Py<PyArray3<f32>> {
+        self.obs().into_pyarray(py).into()
     }
 }
 
@@ -221,104 +214,71 @@ impl PacmanGym {
         }
     }
 
-    /// Returns an observation for the value network.
-    pub fn obs(&self) -> tch::Tensor {
-        #![allow(unused_must_use)] // silence bogus warnings for in-place Tensor operations
+    /// Returns an observation array/tensor constructed from the game state.
+    pub fn obs(&self) -> Array3<f32> {
+        let mut obs_array = Array::zeros((15, 28, 31));
+        let (mut wall, mut reward, mut pacman, mut ghost, mut last_ghost, mut state) = obs_array
+            .multi_slice_mut((
+                s![0, .., ..],
+                s![1, .., ..],
+                s![2..4, .., ..],
+                s![4..8, .., ..],
+                s![8..12, .., ..],
+                s![12..15, .., ..],
+            ));
 
-        let grid_vec: Vec<u8> = self
-            .game_state
-            .grid
-            .iter()
-            .flatten()
-            .map(|cell| *cell as u8)
-            .collect();
-        let grid_width = 28;
-        let grid_height = 31;
-        let wall_vec: Vec<u8> = grid_vec
-            .iter()
-            .map(|&cell| (cell == 1 || cell == 5) as u8)
-            .collect();
-        let wall = tch::Tensor::from_slice(&wall_vec).reshape([grid_width, grid_height]);
-
-        let fright = self.game_state.is_frightened();
-        let entity_positions = [
+        let ghost_positions = [
             self.game_state.red.borrow().current_pos,
             self.game_state.pink.borrow().current_pos,
             self.game_state.orange.borrow().current_pos,
             self.game_state.blue.borrow().current_pos,
         ];
-        let ghost = tch::Tensor::zeros(
-            [4, grid_width, grid_height],
-            (tch::Kind::Int, tch::Device::Cpu),
-        );
-        let state = tch::Tensor::zeros(
-            [3, grid_width, grid_height],
-            (tch::Kind::Float, tch::Device::Cpu),
-        );
-        let fright_ghost = tch::Tensor::zeros(
-            [grid_width, grid_height],
-            (tch::Kind::Float, tch::Device::Cpu),
-        );
-        for (i, pos) in entity_positions.iter().enumerate() {
-            ghost.i((i as i64, pos.0 as i64, pos.1 as i64)).fill_(1);
-            fright_ghost
-                .i((pos.0 as i64, pos.1 as i64))
-                .fill_(fright as i64);
-            state
-                .i((
-                    (self.game_state.state() as u8 - 1) as i64,
-                    pos.0 as i64,
-                    pos.1 as i64,
-                ))
-                .fill_(1.0);
-            if i == 3 {
-                state
-                    .i((
-                        (self.game_state.state() as u8 - 1) as i64,
-                        pos.0 as i64,
-                        pos.1 as i64,
-                    ))
-                    .fill_(
-                        self.game_state.frightened_counter() as f64
-                            / variables::FRIGHTENED_LENGTH as f64,
-                    );
+
+        for (grid_value, wall_value, reward_value) in izip!(
+            self.game_state.grid.iter().flatten(),
+            wall.iter_mut(),
+            reward.iter_mut(),
+        ) {
+            *wall_value = (*grid_value == GridValue::I || *grid_value == GridValue::n) as u8 as f32;
+            *reward_value = match grid_value {
+                GridValue::o => variables::PELLET_SCORE,
+                GridValue::O => variables::POWER_PELLET_SCORE,
+                GridValue::c => variables::CHERRY_SCORE,
+                _ => 0,
+            } as f32
+                / variables::GHOST_SCORE as f32;
+        }
+        if self.game_state.is_frightened() {
+            for pos in ghost_positions {
+                reward[(pos.0, pos.1)] += 1.0;
             }
         }
 
-        let last_ghost = tch::Tensor::zeros(&ghost.size(), (tch::Kind::Int, tch::Device::Cpu));
-        for (i, pos) in self.last_ghost_pos.iter().enumerate() {
-            last_ghost
-                .i((i as i64, pos.0 as i64, pos.1 as i64))
-                .fill_(1);
+        let pac_pos = self.game_state.pacbot.pos;
+        pacman[(0, self.last_pos.0, self.last_pos.1)] = 1.0;
+        pacman[(1, pac_pos.0, pac_pos.1)] = 1.0;
+
+        let state_index = (self.game_state.state() - 1) as usize;
+        for (i, pos) in ghost_positions.iter().enumerate() {
+            ghost[(i, pos.0, pos.1)] = 1.0;
+            state[(state_index, pos.0, pos.1)] = if state_index == 2 {
+                self.game_state.frightened_counter() as f32 / variables::FRIGHTENED_LENGTH as f32
+            } else {
+                1.0
+            };
         }
 
-        let reward_vec: Vec<f32> = grid_vec.iter().map(|cell| match cell {
-            2 => variables::PELLET_SCORE,
-            6 => variables::CHERRY_SCORE,
-            4 => variables::POWER_PELLET_SCORE,
-            _ => 0
-        } as f32 / variables::GHOST_SCORE as f32).collect();
-        let reward =
-            tch::Tensor::from_slice(&reward_vec).reshape([grid_width, grid_height]) + fright_ghost;
+        for (i, pos) in self.last_ghost_pos.iter().enumerate() {
+            last_ghost[(i, pos.0, pos.1)] = 1.0;
+        }
 
-        let pac_pos = self.game_state.pacbot.pos;
-        let pacman = tch::Tensor::zeros(
-            [2, grid_width, grid_height],
-            (tch::Kind::Int, tch::Device::Cpu),
-        );
-        pacman
-            .i((0, self.last_pos.0 as i64, self.last_pos.1 as i64))
-            .fill_(1);
-        pacman.i((1, pac_pos.0 as i64, pac_pos.1 as i64)).fill_(1);
-        tch::Tensor::concat(
-            &[
-                tch::Tensor::stack(&[wall, reward], 0),
-                pacman,
-                ghost,
-                last_ghost,
-                state,
-            ],
-            0,
-        )
+        obs_array
+    }
+
+    /// Returns an observation array/tensor constructed from the game state.
+    pub fn obs_tch(&self) -> tch::Tensor {
+        let obs_array = self.obs();
+        let shape: Vec<_> = obs_array.shape().iter().map(|&d| d as i64).collect();
+        tch::Tensor::from_slice(obs_array.as_slice().unwrap()).reshape(shape)
     }
 }

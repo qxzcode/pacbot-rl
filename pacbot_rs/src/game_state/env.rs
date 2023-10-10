@@ -158,19 +158,8 @@ impl PacmanGym {
 
         let done = self.is_done();
 
-        // reward is raw difference in game score, or -100 if eaten
-        let mut reward = if done {
-            if self.game_state.lives < variables::STARTING_LIVES {
-                -200
-            } else {
-                1000
-            }
-        } else {
-            self.game_state.score as i32 - self.last_score as i32
-        };
-        if tick_mult == 2 {
-            reward -= 10;
-        }
+        // reward is raw difference in game score
+        let reward = self.game_state.score as i32 - self.last_score as i32;
         self.last_score = self.game_state.score;
 
         (reward, done)
@@ -195,6 +184,44 @@ impl PacmanGym {
     /// Returns an observation array/tensor constructed from the game state.
     pub fn obs_numpy(&self, py: Python<'_>) -> Py<PyArray3<f32>> {
         self.obs().into_pyarray(py).into()
+    }
+
+    /// Prints a representation of the game state to standard output.
+    pub fn print_game_state(&self) {
+        // Print the score.
+        print!("Score: {}", self.score());
+        if self.is_done() {
+            print!("  [DONE]");
+        }
+        println!();
+
+        // Print the game grid.
+        for y in (0..self.game_state.grid[0].len()).rev() {
+            for x in 0..self.game_state.grid.len() {
+                let ch = if (x, y) == self.game_state.pacbot.pos {
+                    '@'
+                } else if (x, y) == self.game_state.red.borrow().current_pos {
+                    'R'
+                } else if (x, y) == self.game_state.pink.borrow().current_pos {
+                    'P'
+                } else if (x, y) == self.game_state.orange.borrow().current_pos {
+                    'O'
+                } else if (x, y) == self.game_state.blue.borrow().current_pos {
+                    'B'
+                } else {
+                    match self.game_state.grid[x][y] {
+                        GridValue::I => '#',
+                        GridValue::o => '.',
+                        GridValue::e => ' ',
+                        GridValue::O => 'o',
+                        GridValue::n => 'n',
+                        GridValue::c => 'c',
+                    }
+                };
+                print!("{}", ch);
+            }
+            println!();
+        }
     }
 }
 

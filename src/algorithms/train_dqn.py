@@ -1,3 +1,4 @@
+from argparse import ArgumentParser
 import copy
 import itertools
 import shutil
@@ -16,23 +17,30 @@ from timing import time_block
 from utils import lerp
 
 
-wandb.init(
-    project="pacbot-dqn",
-    config={
-        "learning_rate": 0.001,
-        "batch_size": 512,
-        "num_iters": 150_000,
-        "replay_buffer_size": 10_000,
-        "target_network_update_steps": 500,  # Update the target network every ___ steps.
-        "evaluate_steps": 1,  # Evaluate every ___ steps.
-        "initial_epsilon": 1.0,
-        "final_epsilon": 0.05,
-        "discount_factor": 0.99,
-        "reward_scale": 1 / 50,
-        "grad_clip_norm": 0.1,
-    },
-    # mode="disabled",
-)
+parser = ArgumentParser()
+parser.add_argument("--eval", default=None)
+parser.add_argument("--no-wandb", action="store_true")
+args = parser.parse_args()
+
+
+reward_scale = 1 / 50
+if not (args.eval or args.no_wandb):
+    wandb.init(
+        project="pacbot-dqn",
+        config={
+            "learning_rate": 0.001,
+            "batch_size": 512,
+            "num_iters": 150_000,
+            "replay_buffer_size": 10_000,
+            "target_network_update_steps": 500,  # Update the target network every ___ steps.
+            "evaluate_steps": 1,  # Evaluate every ___ steps.
+            "initial_epsilon": 1.0,
+            "final_epsilon": 0.05,
+            "discount_factor": 0.99,
+            "reward_scale": reward_scale,
+            "grad_clip_norm": 0.1,
+        },
+    )
 
 
 # Initialize the Q network.
@@ -40,14 +48,6 @@ obs_shape = pacbot_rs.PacmanGym(random_start=True).obs_numpy().shape
 num_actions = 5
 q_net = QNet(obs_shape, num_actions)
 print(f"q_net has {sum(p.numel() for p in q_net.parameters())} parameters")
-
-
-# Initialize the replay buffer.
-replay_buffer = ReplayBuffer(
-    maxlen=wandb.config.replay_buffer_size,
-    policy=EpsilonGreedy(MaxQPolicy(q_net), num_actions, wandb.config.initial_epsilon),
-)
-replay_buffer.fill()
 
 
 @torch.no_grad()
@@ -74,6 +74,16 @@ def evaluate_episode(max_steps: int = 1000) -> tuple[int, int]:
 
 
 def train():
+    # Initialize the replay buffer.
+    replay_buffer = ReplayBuffer(
+        maxlen=wandb.config.replay_buffer_size,
+        policy=EpsilonGreedy(
+            MaxQPolicy(q_net), num_actions, wandb.config.initial_epsilon
+        ),
+    )
+    replay_buffer.fill()
+
+    # Initialize the optimizer.
     optimizer = torch.optim.Adam(q_net.parameters(), lr=wandb.config.learning_rate)
 
     for iter_num in tqdm(range(wandb.config.num_iters), smoothing=0.01):
@@ -175,7 +185,7 @@ def train():
 
 
 @torch.no_grad()
-def visualize_agent(reward_scale: float):
+def visualize_agent():
     gym = pacbot_rs.PacmanGym(random_start=True)
     gym.reset()
 
@@ -198,20 +208,17 @@ def visualize_agent(reward_scale: float):
         time.sleep(0.2)
 
 
-do_training = True
-if do_training:
+if args.eval:
+    q_net = torch.load(args.eval)
+else:
     try:
         train()
     except KeyboardInterrupt:
         pass
-    reward_scale = wandb.config.reward_scale
     wandb.finish()
-else:
-    reward_scale = 1 / 50
-    q_net = torch.load("checkpoints/q_net-latest.pt")
 
 while True:
-    visualize_agent(reward_scale)
+    visualize_agent()
     try:
         input("Press enter to view another episode")
     except KeyboardInterrupt:

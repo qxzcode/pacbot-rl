@@ -158,8 +158,12 @@ impl PacmanGym {
 
         let done = self.is_done();
 
-        // reward is raw difference in game score
-        let reward = self.game_state.score as i32 - self.last_score as i32;
+        // reward is raw difference in game score, or -200 if done
+        let reward = if done {
+            -200
+        } else {
+            self.game_state.score as i32 - self.last_score as i32
+        };
         self.last_score = self.game_state.score;
 
         (reward, done)

@@ -1,10 +1,7 @@
-from collections import deque
 import copy
 import itertools
-import random
 import shutil
 import time
-from typing import NamedTuple, Optional
 import torch
 import torch.nn.functional as F
 import wandb
@@ -13,6 +10,9 @@ from tqdm import tqdm
 import pacbot_rs
 
 from models import QNet
+from policies import EpsilonGreedy, MaxQPolicy
+from replay_buffer import ReplayBuffer
+from timing import time_block
 from utils import lerp
 
 
@@ -20,13 +20,14 @@ wandb.init(
     project="pacbot-dqn",
     config={
         "learning_rate": 0.001,
-        "batch_size": 64,
+        "batch_size": 512,
         "num_iters": 150_000,
         "replay_buffer_size": 10_000,
         "target_network_update_steps": 500,  # Update the target network every ___ steps.
+        "evaluate_steps": 1,  # Evaluate every ___ steps.
         "initial_epsilon": 1.0,
         "final_epsilon": 0.05,
-        "discount_factor": 0.999,
+        "discount_factor": 0.99,
         "reward_scale": 1 / 50,
         "grad_clip_norm": 0.1,
     },
@@ -34,60 +35,19 @@ wandb.init(
 )
 
 
-# Initialize the environment.
-gym = pacbot_rs.PacmanGym(random_start=True)
-gym.reset()
-last_obs = torch.from_numpy(gym.obs_numpy())
-obs_shape = last_obs.shape
-num_actions = 5
-exploration_epsilon = wandb.config.initial_epsilon
-
 # Initialize the Q network.
+obs_shape = pacbot_rs.PacmanGym(random_start=True).obs_numpy().shape
+num_actions = 5
 q_net = QNet(obs_shape, num_actions)
 print(f"q_net has {sum(p.numel() for p in q_net.parameters())} parameters")
 
 
-class ReplayItem(NamedTuple):
-    obs: torch.Tensor
-    action: int
-    reward: int
-    next_obs: Optional[torch.Tensor]
-
-
-replay_buffer: deque[ReplayItem] = deque(maxlen=wandb.config.replay_buffer_size)
-
-
-@torch.no_grad()
-def generate_experience_step():
-    global last_obs
-
-    # Choose an action (using q_net and epsilon-greedy for exploration).
-    # TODO: invalid action masking?
-    if random.random() < exploration_epsilon:
-        action = random.randrange(num_actions)
-    else:
-        q_net.eval()
-        action_values = q_net(last_obs.unsqueeze(0)).squeeze(0)
-        action = action_values.argmax()
-
-    # Perform the action and observe the transition.
-    reward, done = gym.step(action)
-    next_obs = None if done else torch.from_numpy(gym.obs_numpy())
-
-    # Add the transition to the replay buffer.
-    replay_buffer.append(ReplayItem(last_obs, action, reward, next_obs))
-
-    # Reset the environment if necessary and update last_obs.
-    if next_obs is None:
-        gym.reset()
-        last_obs = torch.from_numpy(gym.obs_numpy())
-    else:
-        last_obs = next_obs
-
-
-# Fill the replay buffer with random initial experience.
-while len(replay_buffer) < replay_buffer.maxlen:
-    generate_experience_step()
+# Initialize the replay buffer.
+replay_buffer = ReplayBuffer(
+    maxlen=wandb.config.replay_buffer_size,
+    policy=EpsilonGreedy(MaxQPolicy(q_net), num_actions, wandb.config.initial_epsilon),
+)
+replay_buffer.fill()
 
 
 @torch.no_grad()
@@ -101,11 +61,11 @@ def evaluate_episode(max_steps: int = 1000) -> tuple[int, int]:
     gym.reset()
 
     q_net.eval()
+    policy = MaxQPolicy(q_net)
 
     for step_num in range(1, max_steps + 1):
         obs = torch.from_numpy(gym.obs_numpy())
-        action_values = q_net(obs.unsqueeze(0)).squeeze(0)
-        _, done = gym.step(action_values.argmax())
+        _, done = gym.step(policy(obs))
 
         if done:
             break
@@ -114,90 +74,104 @@ def evaluate_episode(max_steps: int = 1000) -> tuple[int, int]:
 
 
 def train():
-    global exploration_epsilon
-
     optimizer = torch.optim.Adam(q_net.parameters(), lr=wandb.config.learning_rate)
 
     for iter_num in tqdm(range(wandb.config.num_iters), smoothing=0.01):
         if iter_num % wandb.config.target_network_update_steps == 0:
-            # Update the target network.
-            target_q_net = copy.deepcopy(q_net)
-            target_q_net.eval()
+            with time_block("Update target network"):
+                # Update the target network.
+                target_q_net = copy.deepcopy(q_net)
+                target_q_net.eval()
 
-        # Sample and collate a batch.
-        batch = random.sample(replay_buffer, k=wandb.config.batch_size)
-        obs_batch = torch.stack([item.obs for item in batch])
-        next_obs_batch = torch.stack(
-            [
-                torch.zeros(obs_shape) if item.next_obs is None else item.next_obs
-                for item in batch
-            ]
-        )
-        done_mask = torch.tensor([item.next_obs is None for item in batch])
-        action_batch = torch.tensor([item.action for item in batch])
-        reward_batch = torch.tensor(
-            [item.reward * wandb.config.reward_scale for item in batch]
-        )
+        with time_block("Collate batch"):
+            # Sample and collate a batch.
+            batch = replay_buffer.sample_batch(wandb.config.batch_size)
+            obs_batch = torch.stack([item.obs for item in batch])
+            next_obs_batch = torch.stack(
+                [
+                    torch.zeros(obs_shape) if item.next_obs is None else item.next_obs
+                    for item in batch
+                ]
+            )
+            done_mask = torch.tensor([item.next_obs is None for item in batch])
+            action_batch = torch.tensor([item.action for item in batch])
+            reward_batch = torch.tensor(
+                [item.reward * wandb.config.reward_scale for item in batch]
+            )
 
-        # Get the target Q values.
+        with time_block("Compute target Q values"):
+            # Get the target Q values.
+            with torch.no_grad():
+                returns = target_q_net(next_obs_batch).amax(dim=1)
+                discounted_returns = wandb.config.discount_factor * returns
+                discounted_returns[done_mask] = 0.0
+                target_q_values = reward_batch + discounted_returns
+
+        with time_block("Compute loss and update parameters"):
+            # Compute the loss and update the parameters.
+            with time_block("optimizer.zero_grad()"):
+                q_net.train()
+                optimizer.zero_grad()
+
+            with time_block("Forward pass"):
+                all_predicted_q_values = q_net(obs_batch)
+                predicted_q_values = all_predicted_q_values[
+                    range(len(batch)), action_batch
+                ]
+                loss = F.mse_loss(predicted_q_values, target_q_values)
+
+            with time_block("Backward pass"):
+                loss.backward()
+            with time_block("Clip grad norm"):
+                grad_norm = torch.nn.utils.clip_grad_norm_(
+                    q_net.parameters(),
+                    max_norm=wandb.config.grad_clip_norm,
+                    error_if_nonfinite=True,
+                )
+            with time_block("optimizer.step()"):
+                optimizer.step()
+
         with torch.no_grad():
-            returns = target_q_net(next_obs_batch).amax(dim=1)
-            discounted_returns = wandb.config.discount_factor * returns
-            discounted_returns[done_mask] = 0.0
-            target_q_values = reward_batch + discounted_returns
-
-        # Compute the loss and update the parameters.
-        q_net.train()
-        optimizer.zero_grad()
-
-        all_predicted_q_values = q_net(obs_batch)
-        predicted_q_values = all_predicted_q_values[range(len(batch)), action_batch]
-        loss = F.mse_loss(predicted_q_values, target_q_values)
-
-        loss.backward()
-        grad_norm = torch.nn.utils.clip_grad_norm_(
-            q_net.parameters(),
-            max_norm=wandb.config.grad_clip_norm,
-            error_if_nonfinite=True,
-        )
-        optimizer.step()
-
-        with torch.no_grad():
-            # Evaluate the current agent.
-            eval_episode_score, eval_episode_steps = evaluate_episode()
-
             # Log metrics.
             metrics = {
                 "loss": loss.item(),
                 "grad_norm": grad_norm,
-                "exploration_epsilon": exploration_epsilon,
+                "exploration_epsilon": replay_buffer.policy.epsilon,
                 "avg_predicted_value": (
                     all_predicted_q_values.amax(dim=1).mean().item()
                     / wandb.config.reward_scale
                 ),
-                "eval_episode_score": eval_episode_score,
-                "eval_episode_steps": eval_episode_steps,
             }
+            if iter_num % wandb.config.evaluate_steps == 0:
+                with time_block("Evaluate the current agent"):
+                    # Evaluate the current agent.
+                    eval_episode_score, eval_episode_steps = evaluate_episode()
+                    metrics.update(
+                        eval_episode_score=eval_episode_score,
+                        eval_episode_steps=eval_episode_steps,
+                    )
             wandb.log(metrics)
 
         if iter_num % 500 == 0:
-            # Save a checkpoint.
-            directory = "checkpoints"
-            torch.save(q_net, f"{directory}/q_net-latest.pt")
-            shutil.copyfile(
-                f"{directory}/q_net-latest.pt",
-                f"{directory}/q_net-iter{iter_num:07}.pt",
-            )
+            with time_block("Save checkpoint"):
+                # Save a checkpoint.
+                directory = "checkpoints2"
+                torch.save(q_net, f"{directory}/q_net-latest.pt")
+                shutil.copyfile(
+                    f"{directory}/q_net-latest.pt",
+                    f"{directory}/q_net-iter{iter_num:07}.pt",
+                )
 
-        # Anneal exploration_epsilon.
-        exploration_epsilon = lerp(
+        # Anneal the exploration policy's epsilon.
+        replay_buffer.policy.epsilon = lerp(
             wandb.config.initial_epsilon,
             wandb.config.final_epsilon,
             iter_num / (wandb.config.num_iters - 1),
         )
 
         # Collect experience.
-        generate_experience_step()
+        with time_block("Collect experience"):
+            replay_buffer.generate_experience_step()
 
 
 @torch.no_grad()
@@ -224,12 +198,17 @@ def visualize_agent(reward_scale: float):
         time.sleep(0.2)
 
 
-try:
-    train()
-except KeyboardInterrupt:
-    pass
-reward_scale = wandb.config.reward_scale
-wandb.finish()
+do_training = True
+if do_training:
+    try:
+        train()
+    except KeyboardInterrupt:
+        pass
+    reward_scale = wandb.config.reward_scale
+    wandb.finish()
+else:
+    reward_scale = 1 / 50
+    q_net = torch.load("checkpoints/q_net-latest.pt")
 
 while True:
     visualize_agent(reward_scale)

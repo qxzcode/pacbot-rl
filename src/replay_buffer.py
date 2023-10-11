@@ -1,10 +1,12 @@
 from collections import deque
 import random
-from typing import Callable, Generic, NamedTuple, Optional, TypeVar
+from typing import Generic, NamedTuple, Optional, TypeVar
 
 import torch
 
 import pacbot_rs
+
+from policies import Policy
 
 
 class ReplayItem(NamedTuple):
@@ -12,9 +14,10 @@ class ReplayItem(NamedTuple):
     action: int
     reward: int
     next_obs: Optional[torch.Tensor]
+    next_action_mask: list[bool]
 
 
-P = TypeVar("P", bound=Callable[[torch.Tensor], int])
+P = TypeVar("P", bound=Policy)
 
 
 class ReplayBuffer(Generic[P]):
@@ -53,15 +56,21 @@ class ReplayBuffer(Generic[P]):
         """Generates one step of experience and adds it to the buffer."""
 
         # Choose an action (using q_net and epsilon-greedy for exploration).
-        # TODO: invalid action masking?
-        action = self.policy(self._last_obs)
+        action = self.policy(self._last_obs, self._gym.action_mask())
 
         # Perform the action and observe the transition.
         reward, done = self._gym.step(action)
-        next_obs = None if done else torch.from_numpy(self._gym.obs_numpy())
+        if done:
+            next_obs = None
+            next_action_mask = [False] * self.num_actions
+        else:
+            next_obs = torch.from_numpy(self._gym.obs_numpy())
+            next_action_mask = self._gym.action_mask()
 
         # Add the transition to the replay buffer.
-        self._buffer.append(ReplayItem(self._last_obs, action, reward, next_obs))
+        self._buffer.append(
+            ReplayItem(self._last_obs, action, reward, next_obs, next_action_mask)
+        )
 
         # Reset the environment if necessary and update last_obs.
         if next_obs is None:

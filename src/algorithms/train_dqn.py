@@ -1,8 +1,10 @@
 from argparse import ArgumentParser
 import copy
 import itertools
+import os
 import shutil
 import time
+
 import torch
 import torch.nn.functional as F
 import wandb
@@ -20,27 +22,28 @@ from utils import lerp
 parser = ArgumentParser()
 parser.add_argument("--eval", default=None)
 parser.add_argument("--no-wandb", action="store_true")
+parser.add_argument("--checkpoint-dir", default="checkpoints")
 args = parser.parse_args()
 
 
 reward_scale = 1 / 50
-if not (args.eval or args.no_wandb):
-    wandb.init(
-        project="pacbot-dqn",
-        config={
-            "learning_rate": 0.001,
-            "batch_size": 512,
-            "num_iters": 150_000,
-            "replay_buffer_size": 10_000,
-            "target_network_update_steps": 500,  # Update the target network every ___ steps.
-            "evaluate_steps": 1,  # Evaluate every ___ steps.
-            "initial_epsilon": 1.0,
-            "final_epsilon": 0.05,
-            "discount_factor": 0.99,
-            "reward_scale": reward_scale,
-            "grad_clip_norm": 0.1,
-        },
-    )
+wandb.init(
+    project="pacbot-dqn",
+    config={
+        "learning_rate": 0.001,
+        "batch_size": 512,
+        "num_iters": 150_000,
+        "replay_buffer_size": 10_000,
+        "target_network_update_steps": 500,  # Update the target network every ___ steps.
+        "evaluate_steps": 1,  # Evaluate every ___ steps.
+        "initial_epsilon": 1.0,
+        "final_epsilon": 0.05,
+        "discount_factor": 0.99,
+        "reward_scale": reward_scale,
+        "grad_clip_norm": 0.1,
+    },
+    mode="disabled" if args.eval or args.no_wandb else "online",
+)
 
 
 # Initialize the Q network.
@@ -65,7 +68,7 @@ def evaluate_episode(max_steps: int = 1000) -> tuple[int, int]:
 
     for step_num in range(1, max_steps + 1):
         obs = torch.from_numpy(gym.obs_numpy())
-        _, done = gym.step(policy(obs))
+        _, done = gym.step(policy(obs, gym.action_mask()))
 
         if done:
             break
@@ -104,6 +107,7 @@ def train():
                 ]
             )
             done_mask = torch.tensor([item.next_obs is None for item in batch])
+            next_action_masks = torch.tensor([item.next_action_mask for item in batch])
             action_batch = torch.tensor([item.action for item in batch])
             reward_batch = torch.tensor(
                 [item.reward * wandb.config.reward_scale for item in batch]
@@ -112,7 +116,9 @@ def train():
         with time_block("Compute target Q values"):
             # Get the target Q values.
             with torch.no_grad():
-                returns = target_q_net(next_obs_batch).amax(dim=1)
+                next_q_values = target_q_net(next_obs_batch)
+                next_q_values[~next_action_masks] = -torch.inf
+                returns = next_q_values.amax(dim=1)
                 discounted_returns = wandb.config.discount_factor * returns
                 discounted_returns[done_mask] = 0.0
                 target_q_values = reward_batch + discounted_returns
@@ -165,11 +171,11 @@ def train():
         if iter_num % 500 == 0:
             with time_block("Save checkpoint"):
                 # Save a checkpoint.
-                directory = "checkpoints2"
-                torch.save(q_net, f"{directory}/q_net-latest.pt")
+                os.mkdir(args.checkpoint_dir)
+                torch.save(q_net, f"{args.checkpoint_dir}/q_net-latest.pt")
                 shutil.copyfile(
-                    f"{directory}/q_net-latest.pt",
-                    f"{directory}/q_net-iter{iter_num:07}.pt",
+                    f"{args.checkpoint_dir}/q_net-latest.pt",
+                    f"{args.checkpoint_dir}/q_net-iter{iter_num:07}.pt",
                 )
 
         # Anneal the exploration policy's epsilon.
@@ -194,6 +200,7 @@ def visualize_agent():
     for step_num in itertools.count(1):
         obs = torch.from_numpy(gym.obs_numpy())
         action_values = q_net(obs.unsqueeze(0)).squeeze(0)
+        action_values[~torch.tensor(gym.action_mask())] = -torch.inf
         print(action_values / reward_scale)
         reward, done = gym.step(action_values.argmax())
         print("reward:", reward)

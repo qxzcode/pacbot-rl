@@ -124,10 +124,17 @@ def train():
 
         with time_block("Compute target Q values"):
             # Get the target Q values.
+            double_dqn = True
             with torch.no_grad():
                 next_q_values = target_q_net(next_obs_batch)
                 next_q_values[~next_action_masks] = -torch.inf
-                returns = next_q_values.amax(dim=1)
+                if double_dqn:
+                    online_next_q_values = q_net(next_obs_batch)
+                    online_next_q_values[~next_action_masks] = -torch.inf
+                    next_actions = online_next_q_values.argmax(dim=1)
+                else:
+                    next_actions = next_q_values.argmax(dim=1)
+                returns = next_q_values[range(len(batch)), next_actions]
                 discounted_returns = wandb.config.discount_factor * returns
                 discounted_returns[done_mask] = 0.0
                 target_q_values = reward_batch + discounted_returns

@@ -1,7 +1,7 @@
 from argparse import ArgumentParser
 import copy
 import itertools
-import os
+from pathlib import Path
 import shutil
 import time
 
@@ -19,29 +19,38 @@ from timing import time_block
 from utils import lerp
 
 
+hyperparam_defaults = {
+    "learning_rate": 0.001,
+    "batch_size": 512,
+    "num_iters": 150_000,
+    "replay_buffer_size": 10_000,
+    "target_network_update_steps": 500,  # Update the target network every ___ steps.
+    "evaluate_steps": 10,  # Evaluate every ___ steps.
+    "initial_epsilon": 1.0,
+    "final_epsilon": 0.05,
+    "discount_factor": 0.99,
+    "reward_scale": 1 / 50,
+    "grad_clip_norm": 0.1,
+}
+
 parser = ArgumentParser()
-parser.add_argument("--eval", default=None)
+parser.add_argument("--eval", metavar="CHECKPOINT", default=None)
 parser.add_argument("--no-wandb", action="store_true")
 parser.add_argument("--checkpoint-dir", default="checkpoints")
+for name, default_value in hyperparam_defaults.items():
+    parser.add_argument(
+        f"--{name}",
+        type=type(default_value),
+        default=default_value,
+        help="Default: %(default)s",
+    )
 args = parser.parse_args()
 
 
-reward_scale = 1 / 50
+reward_scale: int = args.reward_scale
 wandb.init(
     project="pacbot-dqn",
-    config={
-        "learning_rate": 0.001,
-        "batch_size": 512,
-        "num_iters": 150_000,
-        "replay_buffer_size": 10_000,
-        "target_network_update_steps": 500,  # Update the target network every ___ steps.
-        "evaluate_steps": 1,  # Evaluate every ___ steps.
-        "initial_epsilon": 1.0,
-        "final_epsilon": 0.05,
-        "discount_factor": 0.99,
-        "reward_scale": reward_scale,
-        "grad_clip_norm": 0.1,
-    },
+    config={name: getattr(args, name) for name in hyperparam_defaults.keys()},
     mode="disabled" if args.eval or args.no_wandb else "online",
 )
 
@@ -171,11 +180,12 @@ def train():
         if iter_num % 500 == 0:
             with time_block("Save checkpoint"):
                 # Save a checkpoint.
-                os.mkdir(args.checkpoint_dir)
-                torch.save(q_net, f"{args.checkpoint_dir}/q_net-latest.pt")
+                checkpoint_dir = Path(args.checkpoint_dir)
+                checkpoint_dir.mkdir(exist_ok=True)
+                torch.save(q_net, checkpoint_dir / "q_net-latest.pt")
                 shutil.copyfile(
-                    f"{args.checkpoint_dir}/q_net-latest.pt",
-                    f"{args.checkpoint_dir}/q_net-iter{iter_num:07}.pt",
+                    checkpoint_dir / "q_net-latest.pt",
+                    checkpoint_dir / f"q_net-iter{iter_num:07}.pt",
                 )
 
         # Anneal the exploration policy's epsilon.

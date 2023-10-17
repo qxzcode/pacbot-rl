@@ -10,7 +10,7 @@ import torch.nn.functional as F
 import wandb
 from tqdm import tqdm
 
-import pacbot_rs
+from pacbot_rs import PacmanGym
 
 from models import QNet
 from policies import EpsilonGreedy, MaxQPolicy
@@ -56,7 +56,7 @@ wandb.init(
 
 
 # Initialize the Q network.
-obs_shape = pacbot_rs.PacmanGym(random_start=True).obs_numpy().shape
+obs_shape = PacmanGym(random_start=True).obs_numpy().shape
 num_actions = 5
 q_net = QNet(obs_shape, num_actions)
 print(f"q_net has {sum(p.numel() for p in q_net.parameters())} parameters")
@@ -69,7 +69,7 @@ def evaluate_episode(max_steps: int = 1000) -> tuple[int, int]:
 
     Returns (score, total_steps).
     """
-    gym = pacbot_rs.PacmanGym(random_start=True)
+    gym = PacmanGym(random_start=True)
     gym.reset()
 
     q_net.eval()
@@ -173,6 +173,9 @@ def train():
                     all_predicted_q_values.amax(dim=1).mean().item()
                     / wandb.config.reward_scale
                 ),
+                "avg_target_q_value": (
+                    target_q_values.mean() / wandb.config.reward_scale
+                ),
             }
             if iter_num % wandb.config.evaluate_steps == 0:
                 with time_block("Evaluate the current agent"):
@@ -209,17 +212,26 @@ def train():
 
 @torch.no_grad()
 def visualize_agent():
-    gym = pacbot_rs.PacmanGym(random_start=True)
+    gym = PacmanGym(random_start=True)
     gym.reset()
 
     q_net.eval()
 
+    print()
+    print(f"Step 0")
+    gym.print_game_state()
+    print()
+
     for step_num in itertools.count(1):
+        time.sleep(0.2)
+
         obs = torch.from_numpy(gym.obs_numpy())
         action_values = q_net(obs.unsqueeze(0)).squeeze(0)
         action_values[~torch.tensor(gym.action_mask())] = -torch.inf
-        print(action_values / reward_scale)
-        reward, done = gym.step(action_values.argmax())
+        torch.set_printoptions(precision=4, sci_mode=False)
+        action = action_values.argmax().item()
+        print(f"Q values: {action_values / reward_scale}  =>  {action}")
+        reward, done = gym.step(action)
         print("reward:", reward)
 
         print()
@@ -229,7 +241,6 @@ def visualize_agent():
 
         if done:
             break
-        time.sleep(0.2)
 
 
 if args.eval:

@@ -14,6 +14,7 @@ matplotlib = "^3.8.0"
 wandb = "^0.15.12"
 black = "^23.9.1"
 tqdm = "^4.66.1"
+gymnasium = {extras = ["classic-control"], version = "^0.29.1"}
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.25.2"

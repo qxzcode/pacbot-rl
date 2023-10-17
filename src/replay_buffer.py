@@ -5,6 +5,7 @@ from typing import Generic, NamedTuple, Optional, TypeVar
 import torch
 
 import pacbot_rs
+from debug_probe_envs import *
 
 from policies import Policy
 
@@ -18,6 +19,13 @@ class ReplayItem(NamedTuple):
 
 
 P = TypeVar("P", bound=Policy)
+
+
+# DebugProbeGym = lambda: ConstantRewardSequenceProbeGym([0] * 100 + [50])
+# DebugProbeGym = lambda: PredictDelayedRewardProbeGym(
+#     1, keep_giving_answer=False, tell_if_incorrect=False
+# )
+DebugProbeGym = CartPoleGym
 
 
 class ReplayBuffer(Generic[P]):
@@ -35,6 +43,7 @@ class ReplayBuffer(Generic[P]):
 
         # Initialize the environment.
         self._gym = pacbot_rs.PacmanGym(random_start=True)
+        # self._gym = DebugProbeGym()
         self._gym.reset()
         self._last_obs = torch.from_numpy(self._gym.obs_numpy())
 
@@ -55,7 +64,7 @@ class ReplayBuffer(Generic[P]):
     def generate_experience_step(self) -> None:
         """Generates one step of experience and adds it to the buffer."""
 
-        # Choose an action (using q_net and epsilon-greedy for exploration).
+        # Choose an action using the provided policy.
         action = self.policy(self._last_obs, self._gym.action_mask())
 
         # Perform the action and observe the transition.

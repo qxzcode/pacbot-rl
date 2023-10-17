@@ -1,3 +1,4 @@
+import math
 import torch
 from torch import nn
 
@@ -62,3 +63,21 @@ class QNet(nn.Module):
         value = self.value_head(fc_features)
         advantages = self.advantage_head(fc_features)
         return value - advantages.mean(dim=1, keepdim=True) + advantages
+
+
+class DebugMLPQNet(nn.Module):
+    def __init__(self, obs_shape: torch.Size, action_count: int) -> None:
+        super().__init__()
+
+        self.mlp = nn.Sequential(
+            nn.Linear(math.prod(obs_shape), 128),
+            nn.SiLU(),
+            nn.Linear(128, action_count),
+        )
+        with torch.no_grad():
+            # Have both heads output zeros at the start of training.
+            self.mlp[-1].weight.fill_(0)
+            self.mlp[-1].bias.fill_(0)
+
+    def forward(self, input_batch: torch.Tensor) -> torch.Tensor:
+        return self.mlp(input_batch.view(input_batch.shape[0], -1))

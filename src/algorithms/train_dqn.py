@@ -4,6 +4,7 @@ import itertools
 from pathlib import Path
 import shutil
 import time
+import numpy as np
 
 import torch
 import torch.nn.functional as F
@@ -48,9 +49,10 @@ for name, default_value in hyperparam_defaults.items():
 args = parser.parse_args()
 
 device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
+print(f"Using device: {device}")
 
 
-reward_scale: int = args.reward_scale
+reward_scale: float = args.reward_scale
 wandb.init(
     project="pacbot-dqn",
     config={
@@ -229,9 +231,9 @@ def visualize_agent():
         obs = torch.from_numpy(gym.obs_numpy()).to(device)
         action_values = q_net(obs.unsqueeze(0)).squeeze(0)
         action_values[~torch.tensor(gym.action_mask())] = -torch.inf
-        torch.set_printoptions(precision=4, sci_mode=False)
         action = action_values.argmax().item()
-        print(f"Q values: {action_values / reward_scale}  =>  {action}")
+        with np.printoptions(precision=4, suppress=True):
+            print(f"Q values: {(action_values / reward_scale).numpy(force=True)}  =>  {action}")
         reward, done = gym.step(action)
         print("reward:", reward)
 

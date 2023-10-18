@@ -37,6 +37,7 @@ parser = ArgumentParser()
 parser.add_argument("--eval", metavar="CHECKPOINT", default=None)
 parser.add_argument("--no-wandb", action="store_true")
 parser.add_argument("--checkpoint-dir", default="checkpoints")
+parser.add_argument("--device", default=None)
 for name, default_value in hyperparam_defaults.items():
     parser.add_argument(
         f"--{name}",
@@ -46,11 +47,16 @@ for name, default_value in hyperparam_defaults.items():
     )
 args = parser.parse_args()
 
+device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
+
 
 reward_scale: int = args.reward_scale
 wandb.init(
     project="pacbot-dqn",
-    config={name: getattr(args, name) for name in hyperparam_defaults.keys()},
+    config={
+        "device": str(device),
+        **{name: getattr(args, name) for name in hyperparam_defaults.keys()},
+    },
     mode="disabled" if args.eval or args.no_wandb else "online",
 )
 
@@ -58,7 +64,7 @@ wandb.init(
 # Initialize the Q network.
 obs_shape = PacmanGym(random_start=True).obs_numpy().shape
 num_actions = 5
-q_net = QNet(obs_shape, num_actions)
+q_net = QNet(obs_shape, num_actions).to(device)
 print(f"q_net has {sum(p.numel() for p in q_net.parameters())} parameters")
 
 
@@ -76,7 +82,7 @@ def evaluate_episode(max_steps: int = 1000) -> tuple[int, int]:
     policy = MaxQPolicy(q_net)
 
     for step_num in range(1, max_steps + 1):
-        obs = torch.from_numpy(gym.obs_numpy())
+        obs = torch.from_numpy(gym.obs_numpy()).to(device)
         _, done = gym.step(policy(obs, gym.action_mask()))
 
         if done:
@@ -92,6 +98,7 @@ def train():
         policy=EpsilonGreedy(
             MaxQPolicy(q_net), num_actions, wandb.config.initial_epsilon
         ),
+        device=device,
     )
     replay_buffer.fill()
 
@@ -107,20 +114,25 @@ def train():
 
         with time_block("Collate batch"):
             # Sample and collate a batch.
-            batch = replay_buffer.sample_batch(wandb.config.batch_size)
-            obs_batch = torch.stack([item.obs for item in batch])
-            next_obs_batch = torch.stack(
-                [
-                    torch.zeros(obs_shape) if item.next_obs is None else item.next_obs
-                    for item in batch
-                ]
-            )
-            done_mask = torch.tensor([item.next_obs is None for item in batch])
-            next_action_masks = torch.tensor([item.next_action_mask for item in batch])
-            action_batch = torch.tensor([item.action for item in batch])
-            reward_batch = torch.tensor(
-                [item.reward * wandb.config.reward_scale for item in batch]
-            )
+            with device:
+                batch = replay_buffer.sample_batch(wandb.config.batch_size)
+                obs_batch = torch.stack([item.obs for item in batch])
+                next_obs_batch = torch.stack(
+                    [
+                        torch.zeros(obs_shape)
+                        if item.next_obs is None
+                        else item.next_obs
+                        for item in batch
+                    ]
+                )
+                done_mask = torch.tensor([item.next_obs is None for item in batch])
+                next_action_masks = torch.tensor(
+                    [item.next_action_mask for item in batch]
+                )
+                action_batch = torch.tensor([item.action for item in batch])
+                reward_batch = torch.tensor(
+                    [item.reward * wandb.config.reward_scale for item in batch]
+                )
 
         with time_block("Compute target Q values"):
             # Get the target Q values.
@@ -225,7 +237,7 @@ def visualize_agent():
     for step_num in itertools.count(1):
         time.sleep(0.2)
 
-        obs = torch.from_numpy(gym.obs_numpy())
+        obs = torch.from_numpy(gym.obs_numpy()).to(device)
         action_values = q_net(obs.unsqueeze(0)).squeeze(0)
         action_values[~torch.tensor(gym.action_mask())] = -torch.inf
         torch.set_printoptions(precision=4, sci_mode=False)
@@ -244,7 +256,7 @@ def visualize_agent():
 
 
 if args.eval:
-    q_net = torch.load(args.eval)
+    q_net = torch.load(args.eval, map_location=device)
 else:
     try:
         train()

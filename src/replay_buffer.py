@@ -37,15 +37,17 @@ class ReplayBuffer(Generic[P]):
         self,
         maxlen: int,
         policy: P,
+        device: torch.device = torch.device("cpu"),
     ) -> None:
         self._buffer = deque[ReplayItem](maxlen=maxlen)
         self.policy = policy
+        self.device = device
 
         # Initialize the environment.
         self._gym = pacbot_rs.PacmanGym(random_start=True)
         # self._gym = DebugProbeGym()
         self._gym.reset()
-        self._last_obs = torch.from_numpy(self._gym.obs_numpy())
+        self._last_obs = torch.from_numpy(self._gym.obs_numpy()).to(self.device)
 
     @property
     def obs_shape(self) -> torch.Size:
@@ -73,7 +75,7 @@ class ReplayBuffer(Generic[P]):
             next_obs = None
             next_action_mask = [False] * self.num_actions
         else:
-            next_obs = torch.from_numpy(self._gym.obs_numpy())
+            next_obs = torch.from_numpy(self._gym.obs_numpy()).to(self.device)
             next_action_mask = self._gym.action_mask()
 
         # Add the transition to the replay buffer.
@@ -84,7 +86,7 @@ class ReplayBuffer(Generic[P]):
         # Reset the environment if necessary and update last_obs.
         if next_obs is None:
             self._gym.reset()
-            self._last_obs = torch.from_numpy(self._gym.obs_numpy())
+            self._last_obs = torch.from_numpy(self._gym.obs_numpy()).to(self.device)
         else:
             self._last_obs = next_obs
 

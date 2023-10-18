@@ -107,7 +107,7 @@ def train():
     optimizer = torch.optim.Adam(q_net.parameters(), lr=wandb.config.learning_rate)
 
     # Automatic Mixed Precision stuff.
-    use_amp = device.type == "cuda"
+    use_amp = False  # device.type == "cuda"
     grad_scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
     autocast = (
         torch.autocast(device_type=device.type, dtype=torch.float16) if use_amp else nullcontext()

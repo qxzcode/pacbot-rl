@@ -1,4 +1,5 @@
 from argparse import ArgumentParser
+from contextlib import nullcontext
 import copy
 import itertools
 from pathlib import Path
@@ -105,6 +106,11 @@ def train():
     # Initialize the optimizer.
     optimizer = torch.optim.Adam(q_net.parameters(), lr=wandb.config.learning_rate)
 
+    # Automatic Mixed Precision stuff.
+    use_amp = device.type == "cuda"
+    grad_scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+    autocast = torch.autocast(device_type=device, dtype=torch.float16) if use_amp else nullcontext()
+
     for iter_num in tqdm(range(wandb.config.num_iters), smoothing=0.01):
         if iter_num % wandb.config.target_network_update_steps == 0:
             with time_block("Update target network"):
@@ -134,18 +140,19 @@ def train():
             # Get the target Q values.
             double_dqn = True
             with torch.no_grad():
-                next_q_values = target_q_net(next_obs_batch)
-                next_q_values[~next_action_masks] = -torch.inf
-                if double_dqn:
-                    online_next_q_values = q_net(next_obs_batch)
-                    online_next_q_values[~next_action_masks] = -torch.inf
-                    next_actions = online_next_q_values.argmax(dim=1)
-                else:
-                    next_actions = next_q_values.argmax(dim=1)
-                returns = next_q_values[range(len(batch)), next_actions]
-                discounted_returns = wandb.config.discount_factor * returns
-                discounted_returns[done_mask] = 0.0
-                target_q_values = reward_batch + discounted_returns
+                with autocast:
+                    next_q_values = target_q_net(next_obs_batch)
+                    next_q_values[~next_action_masks] = -torch.inf
+                    if double_dqn:
+                        online_next_q_values = q_net(next_obs_batch)
+                        online_next_q_values[~next_action_masks] = -torch.inf
+                        next_actions = online_next_q_values.argmax(dim=1)
+                    else:
+                        next_actions = next_q_values.argmax(dim=1)
+                    returns = next_q_values[range(len(batch)), next_actions]
+                    discounted_returns = wandb.config.discount_factor * returns
+                    discounted_returns[done_mask] = 0.0
+                    target_q_values = reward_batch + discounted_returns
 
         with time_block("Compute loss and update parameters"):
             # Compute the loss and update the parameters.
@@ -154,20 +161,22 @@ def train():
                 optimizer.zero_grad()
 
             with time_block("Forward pass"):
-                all_predicted_q_values = q_net(obs_batch)
-                predicted_q_values = all_predicted_q_values[range(len(batch)), action_batch]
-                loss = F.mse_loss(predicted_q_values, target_q_values)
+                with autocast:
+                    all_predicted_q_values = q_net(obs_batch)
+                    predicted_q_values = all_predicted_q_values[range(len(batch)), action_batch]
+                    loss = F.mse_loss(predicted_q_values, target_q_values)
 
             with time_block("Backward pass"):
-                loss.backward()
+                grad_scaler.scale(loss).backward()
             with time_block("Clip grad norm"):
                 grad_norm = torch.nn.utils.clip_grad_norm_(
                     q_net.parameters(),
                     max_norm=wandb.config.grad_clip_norm,
                     error_if_nonfinite=True,
                 )
-            with time_block("optimizer.step()"):
-                optimizer.step()
+            with time_block("Step optimizer"):
+                grad_scaler.step(optimizer)
+                grad_scaler.update()
 
         with torch.no_grad():
             # Log metrics.

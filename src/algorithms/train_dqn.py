@@ -95,9 +95,7 @@ def train():
     # Initialize the replay buffer.
     replay_buffer = ReplayBuffer(
         maxlen=wandb.config.replay_buffer_size,
-        policy=EpsilonGreedy(
-            MaxQPolicy(q_net), num_actions, wandb.config.initial_epsilon
-        ),
+        policy=EpsilonGreedy(MaxQPolicy(q_net), num_actions, wandb.config.initial_epsilon),
         device=device,
     )
     replay_buffer.fill()
@@ -119,16 +117,12 @@ def train():
                 obs_batch = torch.stack([item.obs for item in batch])
                 next_obs_batch = torch.stack(
                     [
-                        torch.zeros(obs_shape)
-                        if item.next_obs is None
-                        else item.next_obs
+                        torch.zeros(obs_shape) if item.next_obs is None else item.next_obs
                         for item in batch
                     ]
                 )
                 done_mask = torch.tensor([item.next_obs is None for item in batch])
-                next_action_masks = torch.tensor(
-                    [item.next_action_mask for item in batch]
-                )
+                next_action_masks = torch.tensor([item.next_action_mask for item in batch])
                 action_batch = torch.tensor([item.action for item in batch])
                 reward_batch = torch.tensor(
                     [item.reward * wandb.config.reward_scale for item in batch]
@@ -159,9 +153,7 @@ def train():
 
             with time_block("Forward pass"):
                 all_predicted_q_values = q_net(obs_batch)
-                predicted_q_values = all_predicted_q_values[
-                    range(len(batch)), action_batch
-                ]
+                predicted_q_values = all_predicted_q_values[range(len(batch)), action_batch]
                 loss = F.mse_loss(predicted_q_values, target_q_values)
 
             with time_block("Backward pass"):
@@ -182,12 +174,9 @@ def train():
                 "grad_norm": grad_norm,
                 "exploration_epsilon": replay_buffer.policy.epsilon,
                 "avg_predicted_value": (
-                    all_predicted_q_values.amax(dim=1).mean().item()
-                    / wandb.config.reward_scale
+                    all_predicted_q_values.amax(dim=1).mean().item() / wandb.config.reward_scale
                 ),
-                "avg_target_q_value": (
-                    target_q_values.mean() / wandb.config.reward_scale
-                ),
+                "avg_target_q_value": target_q_values.mean() / wandb.config.reward_scale,
             }
             if iter_num % wandb.config.evaluate_steps == 0:
                 with time_block("Evaluate the current agent"):

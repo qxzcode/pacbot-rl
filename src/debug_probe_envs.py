@@ -107,9 +107,7 @@ def _delay_state(
 
 
 class PredictDelayedRewardProbeGym(FSMGym):
-    def __init__(
-        self, delay: int, keep_giving_answer: bool, tell_if_incorrect: bool
-    ) -> None:
+    def __init__(self, delay: int, keep_giving_answer: bool, tell_if_incorrect: bool) -> None:
         assert delay > 0
 
         def make_start_state():

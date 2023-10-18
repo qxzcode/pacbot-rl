@@ -18,9 +18,7 @@ class QNet(nn.Module):
     def __init__(self, obs_shape: torch.Size, action_count: int) -> None:
         super().__init__()
 
-        def conv_act(
-            in_channels: int, out_channels: int, kernel_size: int
-        ) -> nn.Sequential:
+        def conv_act(in_channels: int, out_channels: int, kernel_size: int) -> nn.Sequential:
             return nn.Sequential(
                 nn.Conv2d(in_channels, out_channels, kernel_size, padding="same"),
                 # nn.BatchNorm2d(out_channels),

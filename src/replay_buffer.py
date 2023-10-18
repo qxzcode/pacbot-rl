@@ -79,9 +79,7 @@ class ReplayBuffer(Generic[P]):
             next_action_mask = self._gym.action_mask()
 
         # Add the transition to the replay buffer.
-        self._buffer.append(
-            ReplayItem(self._last_obs, action, reward, next_obs, next_action_mask)
-        )
+        self._buffer.append(ReplayItem(self._last_obs, action, reward, next_obs, next_action_mask))
 
         # Reset the environment if necessary and update last_obs.
         if next_obs is None:

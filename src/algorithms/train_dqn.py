@@ -109,7 +109,9 @@ def train():
     # Automatic Mixed Precision stuff.
     use_amp = device.type == "cuda"
     grad_scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
-    autocast = torch.autocast(device_type=device, dtype=torch.float16) if use_amp else nullcontext()
+    autocast = (
+        torch.autocast(device_type=device.type, dtype=torch.float16) if use_amp else nullcontext()
+    )
 
     for iter_num in tqdm(range(wandb.config.num_iters), smoothing=0.01):
         if iter_num % wandb.config.target_network_update_steps == 0:

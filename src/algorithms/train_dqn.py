@@ -22,14 +22,16 @@ from utils import lerp
 
 
 hyperparam_defaults = {
-    "learning_rate": 0.001,
+    "learning_rate": 0.0001,
     "batch_size": 512,
     "num_iters": 150_000,
     "replay_buffer_size": 10_000,
+    "num_parallel_envs": 32,
+    "experience_steps": 4,
     "target_network_update_steps": 500,  # Update the target network every ___ steps.
     "evaluate_steps": 10,  # Evaluate every ___ steps.
-    "initial_epsilon": 1.0,
-    "final_epsilon": 0.05,
+    "initial_epsilon": 0.1,
+    "final_epsilon": 0.1 * 0.05,
     "discount_factor": 0.99,
     "reward_scale": 1 / 50,
     "grad_clip_norm": 0.1,
@@ -85,8 +87,9 @@ def evaluate_episode(max_steps: int = 1000) -> tuple[int, int]:
     policy = MaxQPolicy(q_net)
 
     for step_num in range(1, max_steps + 1):
-        obs = torch.from_numpy(gym.obs_numpy()).to(device)
-        _, done = gym.step(policy(obs, gym.action_mask()))
+        obs = torch.from_numpy(gym.obs_numpy()).to(device).unsqueeze(0)
+        action_mask = torch.tensor(gym.action_mask(), device=device).unsqueeze(0)
+        _, done = gym.step(policy(obs, action_mask).item())
 
         if done:
             break
@@ -98,10 +101,12 @@ def train():
     # Initialize the replay buffer.
     replay_buffer = ReplayBuffer(
         maxlen=wandb.config.replay_buffer_size,
-        policy=EpsilonGreedy(MaxQPolicy(q_net), num_actions, wandb.config.initial_epsilon),
+        policy=EpsilonGreedy(MaxQPolicy(q_net), num_actions, 1.0),
+        num_parallel_envs=wandb.config.num_parallel_envs,
         device=device,
     )
     replay_buffer.fill()
+    replay_buffer.policy.epsilon = wandb.config.initial_epsilon
 
     # Initialize the optimizer.
     optimizer = torch.optim.Adam(q_net.parameters(), lr=wandb.config.learning_rate)
@@ -221,7 +226,8 @@ def train():
 
         # Collect experience.
         with time_block("Collect experience"):
-            replay_buffer.generate_experience_step()
+            for _ in range(wandb.config.experience_steps):
+                replay_buffer.generate_experience_step()
 
 
 @torch.no_grad()

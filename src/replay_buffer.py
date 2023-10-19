@@ -37,21 +37,26 @@ class ReplayBuffer(Generic[P]):
         self,
         maxlen: int,
         policy: P,
+        num_parallel_envs: int,
         device: torch.device = torch.device("cpu"),
     ) -> None:
         self._buffer = deque[ReplayItem](maxlen=maxlen)
         self.policy = policy
         self.device = device
 
-        # Initialize the environment.
-        self._gym = pacbot_rs.PacmanGym(random_start=True)
-        # self._gym = DebugProbeGym()
-        self._gym.reset()
-        self._last_obs = torch.from_numpy(self._gym.obs_numpy()).to(self.device)
+        # Initialize the environments.
+        self._envs = [pacbot_rs.PacmanGym(random_start=True) for _ in range(num_parallel_envs)]
+        for env in self._envs:
+            env.reset()
+        self._last_obs = self._make_current_obs()
+
+    def _make_current_obs(self) -> torch.Tensor:
+        obs = [env.obs_numpy() for env in self._envs]
+        return torch.from_numpy(np.stack(obs)).to(self.device)
 
     @property
     def obs_shape(self) -> torch.Size:
-        return self.last_obs.shape
+        return self._last_obs.shape[1:]
 
     @property
     def num_actions(self) -> int:
@@ -64,29 +69,35 @@ class ReplayBuffer(Generic[P]):
 
     @torch.no_grad()
     def generate_experience_step(self) -> None:
-        """Generates one step of experience and adds it to the buffer."""
+        """Generates one step of experience for each parallel env and adds them to the buffer."""
 
         # Choose an action using the provided policy.
-        action = self.policy(self._last_obs, self._gym.action_mask())
+        action_masks = [env.action_mask() for env in self._envs]
+        action_masks = torch.from_numpy(np.stack(action_masks)).to(self.device)
+        actions = self.policy(self._last_obs, action_masks)
 
-        # Perform the action and observe the transition.
-        reward, done = self._gym.step(action)
-        if done:
-            next_obs = None
-            next_action_mask = [False] * self.num_actions
-        else:
-            next_obs = torch.from_numpy(self._gym.obs_numpy()).to(self.device)
-            next_action_mask = self._gym.action_mask()
+        next_obs_stack = []
+        for env, last_obs, action in zip(self._envs, self._last_obs, actions.tolist()):
+            # Perform the action and observe the transition.
+            reward, done = env.step(action)
+            if done:
+                next_obs = None
+                next_action_mask = [False] * self.num_actions
+            else:
+                next_obs = torch.from_numpy(env.obs_numpy()).to(self.device)
+                next_action_mask = env.action_mask()
 
-        # Add the transition to the replay buffer.
-        self._buffer.append(ReplayItem(self._last_obs, action, reward, next_obs, next_action_mask))
+            # Add the transition to the replay buffer.
+            self._buffer.append(ReplayItem(last_obs, action, reward, next_obs, next_action_mask))
 
-        # Reset the environment if necessary and update last_obs.
-        if next_obs is None:
-            self._gym.reset()
-            self._last_obs = torch.from_numpy(self._gym.obs_numpy()).to(self.device)
-        else:
-            self._last_obs = next_obs
+            # Reset the environment if necessary and update last_obs.
+            if next_obs is None:
+                env.reset()
+                next_obs_stack.append(torch.from_numpy(env.obs_numpy()).to(self.device))
+            else:
+                next_obs_stack.append(next_obs)
+
+        self._last_obs = torch.stack(next_obs_stack)
 
     def sample_batch(self, batch_size: int) -> list[ReplayItem]:
         """Samples a batch of transitions from the buffer."""

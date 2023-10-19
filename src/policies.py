@@ -1,12 +1,13 @@
 import random
-from typing import Callable, Generic, Optional, TypeVar
+from typing import Callable, Generic, TypeVar
 
 import torch
 
 from models import QNet
 
 
-Policy = Callable[[torch.Tensor, list[bool]], int]
+# A Policy takes a batch of observations and action masks and returns a batch of actions.
+Policy = Callable[[torch.FloatTensor, torch.BoolTensor], torch.IntTensor]
 
 P = TypeVar("P", bound=Policy)
 
@@ -19,12 +20,24 @@ class EpsilonGreedy(Generic[P]):
         self.num_actions = num_actions
         self.epsilon = epsilon
 
-    def __call__(self, obs: torch.Tensor, action_mask: list[bool]) -> int:
-        if random.random() < self.epsilon:
-            valid_actions = [i for i, valid in enumerate(action_mask) if valid]
-            return random.choice(valid_actions)
-        else:
-            return self.original_policy(obs, action_mask)
+    def __call__(self, obs: torch.FloatTensor, action_masks: torch.BoolTensor) -> torch.IntTensor:
+        batch_size = obs.shape[0]
+
+        with obs.device:
+            # Sample uniformly-random valid actions.
+            actions = [
+                random.choice([i for i, valid in enumerate(action_mask) if valid])
+                for action_mask in action_masks.cpu()
+            ]
+            actions = torch.tensor(actions)
+
+            # Generate a mask that will determine which actions will be greedy.
+            greedy_mask = torch.rand(batch_size) > self.epsilon
+
+            # Replace the designated actions with actions from the wrapped policy.
+            actions[greedy_mask] = self.original_policy(obs[greedy_mask], action_masks[greedy_mask])
+
+            return actions
 
 
 class MaxQPolicy:
@@ -39,7 +52,7 @@ class MaxQPolicy:
         self.q_net = q_net
 
     @torch.no_grad()
-    def __call__(self, obs: torch.Tensor, action_mask: list[bool]) -> int:
-        action_values = self.q_net(obs.unsqueeze(0)).squeeze(0)
-        action_values[~torch.tensor(action_mask, device=obs.device)] = -torch.inf
-        return action_values.argmax().item()
+    def __call__(self, obs: torch.FloatTensor, action_masks: torch.BoolTensor) -> torch.IntTensor:
+        action_values = self.q_net(obs)
+        action_values[~action_masks] = -torch.inf
+        return action_values.argmax(dim=1)

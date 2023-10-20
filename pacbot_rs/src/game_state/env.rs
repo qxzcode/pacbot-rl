@@ -11,7 +11,7 @@ use crate::{
     variables::{self, GridValue},
 };
 
-use super::GameState;
+use super::{GameState, GameStateState};
 
 /// How many ticks the game should move every step. Ghosts move every 12 ticks.
 const TICKS_PER_STEP: u32 = 8;
@@ -128,11 +128,8 @@ impl PacmanGym {
 
         // step through environment multiple times
         // If changing directions, double the number of ticks
-        let tick_mult = if self.last_action == action || self.last_action == Action::Stay {
-            1
-        } else {
-            2
-        };
+        let tick_mult =
+            if self.last_action == action || self.last_action == Action::Stay { 1 } else { 2 };
         for _ in 0..TICKS_PER_STEP * tick_mult {
             self.game_state.next_step();
             if self.is_done() {
@@ -148,10 +145,8 @@ impl PacmanGym {
             self.game_state.orange.borrow().current_pos,
             self.game_state.blue.borrow().current_pos,
         ];
-        let pos_changed = entity_positions
-            .iter()
-            .zip(&new_entity_positions)
-            .any(|(e1, e2)| e1 != e2);
+        let pos_changed =
+            entity_positions.iter().zip(&new_entity_positions).any(|(e1, e2)| e1 != e2);
         if pos_changed {
             self.last_ghost_pos = entity_positions;
         }
@@ -159,11 +154,8 @@ impl PacmanGym {
         let done = self.is_done();
 
         // reward is raw difference in game score, or -200 if done
-        let reward = if done {
-            -200
-        } else {
-            self.game_state.score as i32 - self.last_score as i32
-        };
+        let reward =
+            if done { -200 } else { self.game_state.score as i32 - self.last_score as i32 };
         self.last_score = self.game_state.score;
 
         (reward, done)
@@ -266,18 +258,9 @@ impl PacmanGym {
                 s![12..15, .., ..],
             ));
 
-        let ghost_positions = [
-            self.game_state.red.borrow().current_pos,
-            self.game_state.pink.borrow().current_pos,
-            self.game_state.orange.borrow().current_pos,
-            self.game_state.blue.borrow().current_pos,
-        ];
-
-        for (grid_value, wall_value, reward_value) in izip!(
-            self.game_state.grid.iter().flatten(),
-            wall.iter_mut(),
-            reward.iter_mut(),
-        ) {
+        for (grid_value, wall_value, reward_value) in
+            izip!(self.game_state.grid.iter().flatten(), wall.iter_mut(), reward.iter_mut())
+        {
             *wall_value = (*grid_value == GridValue::I || *grid_value == GridValue::n) as u8 as f32;
             *reward_value = match grid_value {
                 GridValue::o => variables::PELLET_SCORE,
@@ -287,9 +270,9 @@ impl PacmanGym {
             } as f32
                 / variables::GHOST_SCORE as f32;
         }
-        if self.game_state.is_frightened() {
-            for pos in ghost_positions {
-                reward[(pos.0, pos.1)] += 1.0;
+        for g in self.game_state.ghosts() {
+            if g.is_frightened() {
+                reward[g.current_pos] += 1.0;
             }
         }
 
@@ -297,14 +280,17 @@ impl PacmanGym {
         pacman[(0, self.last_pos.0, self.last_pos.1)] = 1.0;
         pacman[(1, pac_pos.0, pac_pos.1)] = 1.0;
 
-        let state_index = (self.game_state.state() - 1) as usize;
-        for (i, pos) in ghost_positions.iter().enumerate() {
+        for (i, g) in self.game_state.ghosts().enumerate() {
+            let pos = g.current_pos;
             ghost[(i, pos.0, pos.1)] = 1.0;
-            state[(state_index, pos.0, pos.1)] = if state_index == 2 {
-                self.game_state.frightened_counter() as f32 / variables::FRIGHTENED_LENGTH as f32
+            if g.is_frightened() {
+                state[(2, pos.0, pos.1)] =
+                    g.frightened_counter as f32 / variables::FRIGHTENED_LENGTH as f32;
             } else {
-                1.0
-            };
+                let state_index =
+                    if self.game_state.state == GameStateState::Chase { 1 } else { 0 };
+                state[(state_index, pos.0, pos.1)] = 1.0;
+            }
         }
 
         for (i, pos) in self.last_ghost_pos.iter().enumerate() {

@@ -22,9 +22,6 @@ fn pacbot_rs(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<MCTSContext>()?;
     m.add_function(wrap_pyfunction!(observations::create_obs_semantic, m)?)?;
     m.add_function(wrap_pyfunction!(heuristic_values::get_heuristic_value, m)?)?;
-    m.add_function(wrap_pyfunction!(
-        heuristic_values::get_action_heuristic_values,
-        m
-    )?)?;
+    m.add_function(wrap_pyfunction!(heuristic_values::get_action_heuristic_values, m)?)?;
     Ok(())
 }

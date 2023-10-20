@@ -8,10 +8,7 @@ pub struct PacBot {
 
 impl PacBot {
     pub fn new() -> Self {
-        Self {
-            pos: PACBOT_STARTING_POS,
-            direction: PACBOT_STARTING_DIR,
-        }
+        Self { pos: PACBOT_STARTING_POS, direction: PACBOT_STARTING_DIR }
     }
 
     pub fn respawn(&mut self) {

@@ -185,10 +185,7 @@ impl GhostAgent {
 
     /// Returns a random move selected from the list of valid moves for this ghost.
     fn get_next_frightened_move(&self, game_state: &GameState) -> ((usize, usize), Direction) {
-        let move_pos = *self
-            .possible_moves(game_state)
-            .choose(&mut rand::thread_rng())
-            .unwrap();
+        let move_pos = *self.possible_moves(game_state).choose(&mut rand::thread_rng()).unwrap();
         (move_pos, self.get_direction(self.next_pos, move_pos))
     }
 

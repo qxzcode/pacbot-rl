@@ -27,10 +27,7 @@ struct GhostAgentWrapper {
 impl GhostAgentWrapper {
     #[getter]
     fn pos(&self) -> GhostPosWrapper {
-        GhostPosWrapper {
-            game_state: self.game_state.clone(),
-            get_ghost: self.get_ghost,
-        }
+        GhostPosWrapper { game_state: self.game_state.clone(), get_ghost: self.get_ghost }
     }
 
     fn clear_start_path(&mut self) -> PyResult<()> {
@@ -82,10 +79,7 @@ pub(super) fn wrap_ghost_agent(
     game_state: Py<GameState>,
     get_ghost: fn(&GameState) -> &RefCell<GhostAgent>,
 ) -> impl IntoPy<Py<PyAny>> {
-    GhostAgentWrapper {
-        game_state,
-        get_ghost,
-    }
+    GhostAgentWrapper { game_state, get_ghost }
 }
 
 /// Wraps a reference to a GameState's grid.
@@ -100,10 +94,7 @@ impl GridWrapper {
         Python::with_gil(|py| {
             let game_state = self.game_state.borrow(py);
             if index < game_state.grid.len() {
-                Ok(GridRowWrapper {
-                    game_state: self.game_state.clone(),
-                    row: index,
-                })
+                Ok(GridRowWrapper { game_state: self.game_state.clone(), row: index })
             } else {
                 Err(PyIndexError::new_err("grid row index out of range"))
             }

@@ -272,15 +272,11 @@ impl GameState {
 // separate impl block for private functions not exposed to Python
 impl GameState {
     pub fn ghosts(&self) -> impl Iterator<Item = cell::Ref<GhostAgent>> {
-        [&self.red, &self.pink, &self.orange, &self.blue]
-            .into_iter()
-            .map(|g| g.borrow())
+        [&self.red, &self.pink, &self.orange, &self.blue].into_iter().map(|g| g.borrow())
     }
 
     pub fn ghosts_mut(&mut self) -> impl Iterator<Item = cell::RefMut<GhostAgent>> {
-        [&self.red, &self.pink, &self.orange, &self.blue]
-            .into_iter()
-            .map(|g| g.borrow_mut())
+        [&self.red, &self.pink, &self.orange, &self.blue].into_iter().map(|g| g.borrow_mut())
     }
 
     /// Frightens all of the ghosts and saves the old state to be restored when frightened mode ends.

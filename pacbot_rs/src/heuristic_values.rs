@@ -78,11 +78,7 @@ pub fn get_heuristic_value(game_state: &GameState, pos: (usize, usize)) -> Optio
     let ghost_heuristic: f32 = ghost_dists
         .into_iter()
         .map(|(dist, is_frightened)| {
-            let weight = if is_frightened {
-                -FRIGHTENED_GHOST_WEIGHT
-            } else {
-                GHOST_WEIGHT
-            };
+            let weight = if is_frightened { -FRIGHTENED_GHOST_WEIGHT } else { GHOST_WEIGHT };
             let fear_minus_dist = FEAR - dist;
             (fear_minus_dist * fear_minus_dist) as f32 * weight
         })
@@ -97,14 +93,8 @@ pub fn get_heuristic_value(game_state: &GameState, pos: (usize, usize)) -> Optio
 pub fn get_action_heuristic_values(game_state: &GameState) -> ([Option<f32>; 5], u8) {
     let (px, py) = game_state.pacbot.pos;
 
-    let values = [
-        (px, py),
-        (px, py + 1),
-        (px, py - 1),
-        (px - 1, py),
-        (px + 1, py),
-    ]
-    .map(|pos| get_heuristic_value(game_state, pos));
+    let values = [(px, py), (px, py + 1), (px, py - 1), (px - 1, py), (px + 1, py)]
+        .map(|pos| get_heuristic_value(game_state, pos));
 
     let best_action = values
         .iter()

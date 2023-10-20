@@ -200,29 +200,37 @@ impl PacmanGym {
         println!();
 
         // Print the game grid.
+        let ghost_char = |x, y| {
+            for (ch, ghost) in [
+                ('R', self.game_state.red.borrow()),
+                ('P', self.game_state.pink.borrow()),
+                ('O', self.game_state.orange.borrow()),
+                ('B', self.game_state.blue.borrow()),
+            ] {
+                if (x, y) == ghost.current_pos {
+                    let color = if ghost.is_frightened() { "96" } else { "38;5;206" };
+                    return Some((ch, color));
+                }
+            }
+            None
+        };
         for y in (0..self.game_state.grid[0].len()).rev() {
             for x in 0..self.game_state.grid.len() {
-                let ch = if (x, y) == self.game_state.pacbot.pos {
-                    '@'
-                } else if (x, y) == self.game_state.red.borrow().current_pos {
-                    'R'
-                } else if (x, y) == self.game_state.pink.borrow().current_pos {
-                    'P'
-                } else if (x, y) == self.game_state.orange.borrow().current_pos {
-                    'O'
-                } else if (x, y) == self.game_state.blue.borrow().current_pos {
-                    'B'
+                let (ch, style) = if (x, y) == self.game_state.pacbot.pos {
+                    ('@', "93")
+                } else if let Some(ch) = ghost_char(x, y) {
+                    ch
                 } else {
                     match self.game_state.grid[x][y] {
-                        GridValue::I => '#',
-                        GridValue::o => '.',
-                        GridValue::e => ' ',
-                        GridValue::O => 'o',
-                        GridValue::n => 'n',
-                        GridValue::c => 'c',
+                        GridValue::I => ('#', "90"),
+                        GridValue::o => ('.', ""),
+                        GridValue::e => (' ', ""),
+                        GridValue::O => ('o', ""),
+                        GridValue::n => ('n', "90"),
+                        GridValue::c => ('c', "31"),
                     }
                 };
-                print!("{}", ch);
+                print!("\x1b[{style}m{ch}\x1b[0m");
             }
             println!();
         }

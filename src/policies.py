@@ -45,7 +45,7 @@ class MaxQPolicy:
     A policy that selects the action with the highest Q(s, a) value, as predicted by a Q network.
 
     The Q network is expected to take a (batched) observation tensor and return a (batched) vector
-    of Q values, with shape (1, num_actions).
+    of Q values, with shape (batch_size, num_actions).
     """
 
     def __init__(self, q_net: QNet) -> None:

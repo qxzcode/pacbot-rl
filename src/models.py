@@ -63,6 +63,53 @@ class QNet(nn.Module):
         return value - advantages.mean(dim=1, keepdim=True) + advantages
 
 
+class QNetV2(nn.Module):
+    def __init__(self, obs_shape: torch.Size, action_count: int) -> None:
+        super().__init__()
+
+        def conv_block_pool(in_channels: int, out_channels: int) -> nn.Sequential:
+            return nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, 3, padding="same"),
+                nn.MaxPool2d(2, ceil_mode=True),
+                nn.SiLU(),
+            )
+
+        obs_channels, _, _ = obs_shape
+        self.backbone = nn.Sequential(
+            nn.Conv2d(obs_channels, 16, 5, padding="same"),
+            nn.SiLU(),
+            *conv_block_pool(16, 32),
+            *conv_block_pool(32, 64),
+            *conv_block_pool(64, 128),
+            nn.Conv2d(128, 128, 3, groups=128 // 16, padding="same"),
+            nn.AdaptiveMaxPool2d((1, 1)),
+            nn.Flatten(),
+            nn.SiLU(),
+            nn.Linear(128, 256),
+            nn.SiLU(),
+        )
+        self.value_head = nn.Sequential(
+            nn.Linear(256, 1),
+        )
+        self.advantage_head = nn.Sequential(
+            nn.Linear(256, action_count),
+        )
+
+        init_orthogonal(self)
+
+        with torch.no_grad():
+            # Have both heads output zeros at the start of training.
+            for linear_layer in [self.value_head[-1], self.advantage_head[-1]]:
+                linear_layer.weight.fill_(0)
+                linear_layer.bias.fill_(0)
+
+    def forward(self, input_batch: torch.Tensor) -> torch.Tensor:
+        backbone_features = self.backbone(input_batch)
+        value = self.value_head(backbone_features)
+        advantages = self.advantage_head(backbone_features)
+        return value - advantages.mean(dim=1, keepdim=True) + advantages
+
+
 class DebugMLPQNet(nn.Module):
     def __init__(self, obs_shape: torch.Size, action_count: int) -> None:
         super().__init__()

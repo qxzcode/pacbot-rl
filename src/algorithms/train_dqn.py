@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 from pacbot_rs import PacmanGym
 
-from models import QNet
+import models
 from policies import EpsilonGreedy, MaxQPolicy
 from replay_buffer import ReplayBuffer
 from timing import time_block
@@ -35,6 +35,7 @@ hyperparam_defaults = {
     "discount_factor": 0.99,
     "reward_scale": 1 / 50,
     "grad_clip_norm": 0.1,
+    "model": "QNetV2",
 }
 
 parser = ArgumentParser()
@@ -50,6 +51,8 @@ for name, default_value in hyperparam_defaults.items():
         help="Default: %(default)s",
     )
 args = parser.parse_args()
+if not hasattr(models, args.model):
+    parser.error(f"Invalid --model: {args.model!r} (must be a class in models.py)")
 
 device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
 print(f"Using device: {device}")
@@ -69,7 +72,8 @@ wandb.init(
 # Initialize the Q network.
 obs_shape = PacmanGym(random_start=True).obs_numpy().shape
 num_actions = 5
-q_net = QNet(obs_shape, num_actions).to(device)
+model_class = getattr(models, wandb.config.model)
+q_net = model_class(obs_shape, num_actions).to(device)
 print(f"q_net has {sum(p.numel() for p in q_net.parameters())} parameters")
 
 

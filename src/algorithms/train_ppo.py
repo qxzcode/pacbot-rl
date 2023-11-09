@@ -83,7 +83,7 @@ def evaluate_episode(max_steps: int = 1000) -> tuple[int, int]:
     """
     Performs a single evaluation episode.
 
-    Returns (score, total_steps).
+    Returns (score, total_steps, avg_action_entropy).
     """
     gym = PacmanGym(random_start=True)
     gym.reset()
@@ -91,15 +91,18 @@ def evaluate_episode(max_steps: int = 1000) -> tuple[int, int]:
     policy_net.eval()
     policy = PNetPolicy(policy_net)
 
+    entropies = []
     for step_num in range(1, max_steps + 1):
         obs = torch.from_numpy(gym.obs_numpy()).to(device).unsqueeze(0)
         action_mask = torch.tensor(gym.action_mask(), device=device).unsqueeze(0)
-        _, done = gym.step(policy(obs, action_mask).item())
+        action, entropy = policy.action_and_entropy(obs, action_mask)
+        entropies.append(entropy.item())
+        _, done = gym.step(action.item())
 
         if done:
             break
 
-    return (gym.score(), step_num)
+    return gym.score(), step_num, np.mean(entropies)
 
 
 def train():
@@ -202,15 +205,15 @@ def train():
             if iter_num % wandb.config.evaluate_iters == 0:
                 with time_block("Evaluate the current agent"):
                     # Evaluate the current agent.
-                    eval_episode_score, eval_episode_steps = evaluate_episode()
+                    episode_score, episode_steps, avg_policy_entropy = evaluate_episode()
                     metrics.update(
-                        eval_episode_score=eval_episode_score,
-                        eval_episode_steps=eval_episode_steps,
-                        # TODO: eval_avg_policy_entropy
+                        eval_episode_score=episode_score,
+                        eval_episode_steps=episode_steps,
+                        eval_avg_policy_entropy=avg_policy_entropy,
                     )
             wandb.log(metrics)
 
-        if iter_num % 500 == 0:
+        if iter_num % 30 == 0:
             with time_block("Save checkpoint"):
                 # Save a checkpoint.
                 checkpoint_dir = Path(args.checkpoint_dir)

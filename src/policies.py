@@ -71,8 +71,15 @@ class PNetPolicy:
     def __init__(self, policy_net: NetV2) -> None:
         self.policy_net = policy_net
 
-    @torch.no_grad()
     def __call__(self, obs: torch.FloatTensor, action_masks: torch.BoolTensor) -> torch.IntTensor:
+        actions, _ = self.action_and_entropy(obs, action_masks)
+        return actions
+
+    @torch.no_grad()
+    def action_and_entropy(
+        self, obs: torch.FloatTensor, action_masks: torch.BoolTensor
+    ) -> tuple[torch.IntTensor, torch.FloatTensor]:
         action_logits = self.policy_net(obs)
         action_logits[~action_masks] = -torch.inf
-        return Categorical(logits=action_logits).sample()
+        action_dist = Categorical(logits=action_logits)
+        return action_dist.sample(), action_dist.entropy()

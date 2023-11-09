@@ -16,6 +16,7 @@ class StepExperienceItems(NamedTuple):
     log_old_action_probs: torch.FloatTensor
     rewards: torch.FloatTensor
     dones: torch.BoolTensor
+    action_masks: torch.BoolTensor
 
 
 class ExperienceTrainingItem(NamedTuple):
@@ -24,6 +25,7 @@ class ExperienceTrainingItem(NamedTuple):
     log_old_action_prob: torch.FloatTensor  # scalar
     return_: torch.FloatTensor  # scalar
     advantage: torch.FloatTensor  # scalar
+    action_mask: torch.BoolTensor
 
 
 class ExperienceBuffer:
@@ -112,12 +114,15 @@ class ExperienceBuffer:
                 log_action_probs,
                 torch.tensor(rewards, device=self.device),
                 torch.tensor(dones, device=self.device),
+                action_masks,
             )
         )
         self._last_obs = torch.stack(next_obs_stack)
 
     @torch.no_grad()
     def compute_training_items(self) -> None:
+        """Computes training items by backfilling the returns and advantages."""
+
         self._train_buffer = list[ExperienceTrainingItem]()
         next_values = self.value_net(self._last_obs).squeeze(dim=1)
         returns = next_values
@@ -145,6 +150,7 @@ class ExperienceBuffer:
                     exp_items.log_old_action_probs,
                     returns,
                     advantages,
+                    exp_items.action_masks,
                 )
             )
 

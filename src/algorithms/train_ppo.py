@@ -31,6 +31,7 @@ hyperparam_defaults = {
     "discount_factor": 0.99,
     "gae_lambda": 0.95,
     "ppo_epsilon": 0.2,
+    "entropy_loss_coef": 0.0001,
     "reward_scale": 1 / 100,
     "grad_clip_norm": 0.1,
     "model": "NetV2",
@@ -133,6 +134,7 @@ def train():
 
         total_value_loss = 0
         total_policy_loss = 0
+        total_avg_entropy = 0
         value_grad_norms = []
         policy_grad_norms = []
         for batch in exp_buffer.batches(wandb.config.batch_size, wandb.config.num_train_iters):
@@ -146,6 +148,7 @@ def train():
                     )
                     return_batch = torch.stack([item.return_ for item in batch])
                     advantage_batch = torch.stack([item.advantage for item in batch])
+                    action_mask_batch = torch.stack([item.action_mask for item in batch])
 
             with time_block("Compute loss and update parameters (value net)"):
                 value_net.train()
@@ -169,9 +172,13 @@ def train():
             with time_block("Compute loss and update parameters (policy net)"):
                 policy_net.train()
 
-                # Compute the loss.
+                # Predict the action distributions.
                 action_logits = policy_net(obs_batch)
-                log_new_action_probs = Categorical(logits=action_logits).log_prob(action_batch)
+                action_logits[~action_mask_batch] = -torch.inf
+                action_dists = Categorical(logits=action_logits)
+
+                # Compute the main loss.
+                log_new_action_probs = action_dists.log_prob(action_batch)
                 ratios = (log_new_action_probs - log_old_action_prob_batch).exp()
                 unclipped_loss = ratios * advantage_batch
                 clipped_loss = (
@@ -179,6 +186,11 @@ def train():
                 ) * advantage_batch
                 policy_loss = -torch.min(unclipped_loss, clipped_loss).mean()
                 total_policy_loss += policy_loss.item()
+
+                # Add the entropy term to encourage exploration.
+                avg_entropy = action_dists.entropy().mean()
+                total_avg_entropy += avg_entropy.item()
+                policy_loss += wandb.config.entropy_loss_coef * avg_entropy
 
                 # Compute the gradient and update the parameters.
                 policy_optimizer.zero_grad()
@@ -197,6 +209,7 @@ def train():
                 "avg_value_loss": total_value_loss / wandb.config.num_train_iters,
                 "max_value_grad_norm": max(value_grad_norms),
                 "avg_policy_loss": total_policy_loss / wandb.config.num_train_iters,
+                "avg_policy_entropy": total_avg_entropy / wandb.config.num_train_iters,
                 "max_policy_grad_norm": max(policy_grad_norms),
                 "avg_predicted_value": predicted_returns.mean() / wandb.config.reward_scale,
                 "avg_target_value": return_batch.mean() / wandb.config.reward_scale,

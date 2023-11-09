@@ -110,6 +110,45 @@ class QNetV2(nn.Module):
         return value - advantages.mean(dim=1, keepdim=True) + advantages
 
 
+class NetV2(nn.Module):
+    def __init__(self, obs_shape: torch.Size, output_dim: int) -> None:
+        super().__init__()
+
+        def conv_block_pool(in_channels: int, out_channels: int) -> nn.Sequential:
+            return nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, 3, padding="same"),
+                nn.MaxPool2d(2, ceil_mode=True),
+                nn.SiLU(),
+            )
+
+        obs_channels, _, _ = obs_shape
+        self.network = nn.Sequential(
+            nn.Conv2d(obs_channels, 16, 5, padding="same"),
+            nn.SiLU(),
+            *conv_block_pool(16, 32),
+            *conv_block_pool(32, 64),
+            *conv_block_pool(64, 128),
+            nn.Conv2d(128, 128, 3, groups=128 // 16, padding="same"),
+            nn.AdaptiveMaxPool2d((1, 1)),
+            nn.Flatten(),
+            nn.SiLU(),
+            nn.Linear(128, 256),
+            nn.SiLU(),
+            nn.Linear(256, output_dim),
+        )
+
+        init_orthogonal(self)
+
+        with torch.no_grad():
+            # Have the final layer output zeros at the start of training.
+            linear_layer = self.network[-1]
+            linear_layer.weight.fill_(0)
+            linear_layer.bias.fill_(0)
+
+    def forward(self, input_batch: torch.Tensor) -> torch.Tensor:
+        return self.network(input_batch)
+
+
 class DebugMLPQNet(nn.Module):
     def __init__(self, obs_shape: torch.Size, action_count: int) -> None:
         super().__init__()

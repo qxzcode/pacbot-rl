@@ -2,8 +2,9 @@ import random
 from typing import Callable, Generic, TypeVar
 
 import torch
+from torch.distributions import Categorical
 
-from models import QNet
+from models import NetV2, QNet
 
 
 # A Policy takes a batch of observations and action masks and returns a batch of actions.
@@ -56,3 +57,22 @@ class MaxQPolicy:
         action_values = self.q_net(obs)
         action_values[~action_masks] = -torch.inf
         return action_values.argmax(dim=1)
+
+
+class PNetPolicy:
+    """
+    A policy that selects an action according to the categorical distribution predicted by a policy
+    network.
+
+    The policy network is expected to take a (batched) observation tensor and return a (batched) vector
+    of action logits, with shape (batch_size, num_actions).
+    """
+
+    def __init__(self, policy_net: NetV2) -> None:
+        self.policy_net = policy_net
+
+    @torch.no_grad()
+    def __call__(self, obs: torch.FloatTensor, action_masks: torch.BoolTensor) -> torch.IntTensor:
+        action_logits = self.policy_net(obs)
+        action_logits[~action_masks] = -torch.inf
+        return Categorical(logits=action_logits).sample()

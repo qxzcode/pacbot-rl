@@ -132,9 +132,9 @@ def train():
                 exp_buffer.generate_experience_step()
             exp_buffer.compute_training_items()
 
-        total_value_loss = 0
-        total_policy_loss = 0
-        total_avg_entropy = 0
+        value_losses = []
+        policy_losses = []
+        avg_entropies = []
         value_grad_norms = []
         policy_grad_norms = []
         for batch in exp_buffer.batches(wandb.config.batch_size, wandb.config.num_train_iters):
@@ -156,7 +156,7 @@ def train():
                 # Compute the loss.
                 predicted_returns = value_net(obs_batch).squeeze(dim=1)
                 value_loss = F.mse_loss(predicted_returns, return_batch)
-                total_value_loss += value_loss.item()
+                value_losses.append(value_loss.item())
 
                 # Compute the gradient and update the parameters.
                 value_optimizer.zero_grad()
@@ -185,11 +185,11 @@ def train():
                     1.0 + wandb.config.ppo_epsilon * advantage_batch.sign()
                 ) * advantage_batch
                 policy_loss = -torch.min(unclipped_loss, clipped_loss).mean()
-                total_policy_loss += policy_loss.item()
+                policy_losses.append(policy_loss.item())
 
                 # Add the entropy term to encourage exploration.
                 avg_entropy = action_dists.entropy().mean()
-                total_avg_entropy += avg_entropy.item()
+                avg_entropies.append(avg_entropy.item())
                 policy_loss += wandb.config.entropy_loss_coef * avg_entropy
 
                 # Compute the gradient and update the parameters.
@@ -206,10 +206,10 @@ def train():
         with torch.no_grad():
             # Log metrics.
             metrics = {
-                "avg_value_loss": total_value_loss / wandb.config.num_train_iters,
+                "avg_value_loss": np.mean(value_losses),
                 "max_value_grad_norm": max(value_grad_norms),
-                "avg_policy_loss": total_policy_loss / wandb.config.num_train_iters,
-                "avg_policy_entropy": total_avg_entropy / wandb.config.num_train_iters,
+                "avg_policy_loss": np.mean(policy_losses),
+                "avg_policy_entropy": np.mean(avg_entropies),
                 "max_policy_grad_norm": max(policy_grad_norms),
                 "avg_predicted_value": predicted_returns.mean() / wandb.config.reward_scale,
                 "avg_target_value": return_batch.mean() / wandb.config.reward_scale,

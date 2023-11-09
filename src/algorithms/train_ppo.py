@@ -31,7 +31,7 @@ hyperparam_defaults = {
     "discount_factor": 0.99,
     "gae_lambda": 0.95,
     "ppo_epsilon": 0.2,
-    "reward_scale": 1 / 50,
+    "reward_scale": 1 / 100,
     "grad_clip_norm": 0.1,
     "model": "NetV2",
 }
@@ -56,7 +56,6 @@ device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "
 print(f"Using device: {device}")
 
 
-reward_scale: float = args.reward_scale
 wandb.init(
     project="pacbot-ind-study",
     group="ppo",
@@ -114,6 +113,7 @@ def train():
         discount_factor=wandb.config.discount_factor,
         device=device,
         gae_lambda=wandb.config.gae_lambda,
+        reward_scale=wandb.config.reward_scale,
     )
 
     # Initialize the optimizers.
@@ -143,9 +143,7 @@ def train():
                     log_old_action_prob_batch = torch.stack(
                         [item.log_old_action_prob for item in batch]
                     )
-                    return_batch = torch.stack(
-                        [item.return_ * wandb.config.reward_scale for item in batch]
-                    )
+                    return_batch = torch.stack([item.return_ for item in batch])
                     advantage_batch = torch.stack([item.advantage for item in batch])
 
             with time_block("Compute loss and update parameters (value net)"):

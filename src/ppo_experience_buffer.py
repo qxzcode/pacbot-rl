@@ -14,7 +14,7 @@ class StepExperienceItems(NamedTuple):
     observations: torch.Tensor
     actions: torch.IntTensor
     log_old_action_probs: torch.FloatTensor
-    rewards: torch.IntTensor
+    rewards: torch.FloatTensor
     dones: torch.BoolTensor
 
 
@@ -39,6 +39,7 @@ class ExperienceBuffer:
         discount_factor: float,
         device: torch.device = torch.device("cpu"),
         gae_lambda: float = 0.95,
+        reward_scale: float = 1.0,
     ) -> None:
         self._buffer = list[StepExperienceItems]()
         self.policy_net = policy_net
@@ -46,6 +47,7 @@ class ExperienceBuffer:
         self.discount_factor = discount_factor
         self.device = device
         self.gae_lambda = gae_lambda
+        self.reward_scale = reward_scale
 
         # Initialize the environments.
         self._envs = [pacbot_rs.PacmanGym(random_start=True) for _ in range(num_parallel_envs)]
@@ -88,6 +90,7 @@ class ExperienceBuffer:
         for env, action in zip(self._envs, actions.tolist()):
             # Perform the action and observe the transition.
             reward, done = env.step(action)
+            reward *= self.reward_scale
             rewards.append(reward)
             dones.append(done)
             if done:

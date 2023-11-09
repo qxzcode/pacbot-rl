@@ -1,6 +1,4 @@
 from argparse import ArgumentParser
-from contextlib import nullcontext
-import copy
 import itertools
 from pathlib import Path
 import shutil
@@ -9,6 +7,7 @@ import numpy as np
 
 import torch
 import torch.nn.functional as F
+from torch.distributions import Categorical
 import wandb
 from tqdm import tqdm
 
@@ -16,19 +15,22 @@ from pacbot_rs import PacmanGym
 
 import models
 from policies import PNetPolicy
-from replay_buffer import ReplayBuffer
+from ppo_experience_buffer import ExperienceBuffer
 from timing import time_block
-from utils import lerp
 
 
 hyperparam_defaults = {
-    "learning_rate": 0.0001,
-    "batch_size": 512,
-    "num_iters": 150_000,
-    "num_parallel_envs": 64,
-    "experience_steps": 100,  # Collect this many steps of experience (per parallel env) each iteration.
-    "evaluate_iters": 10,  # Evaluate every ___ iterations.
+    "value_learning_rate": 0.001,
+    "policy_learning_rate": 0.0001,
+    "batch_size": 2048,
+    "num_iters": 10_000,
+    "num_train_iters": 4,
+    "num_parallel_envs": 128,
+    "experience_steps": 200,  # Collect this many steps of experience (per parallel env) each iteration.
+    "evaluate_iters": 1,  # Evaluate every ___ iterations.
     "discount_factor": 0.99,
+    "gae_lambda": 0.95,
+    "ppo_epsilon": 0.2,
     "reward_scale": 1 / 50,
     "grad_clip_norm": 0.1,
     "model": "NetV2",
@@ -102,89 +104,100 @@ def evaluate_episode(max_steps: int = 1000) -> tuple[int, int]:
 
 def train():
     # Initialize the replay buffer.
-    replay_buffer = ReplayBuffer(
-        maxlen=None,
-        policy=PNetPolicy(policy_net),
+    exp_buffer = ExperienceBuffer(
+        policy_net=policy_net,
+        value_net=value_net,
         num_parallel_envs=wandb.config.num_parallel_envs,
+        discount_factor=wandb.config.discount_factor,
         device=device,
+        gae_lambda=wandb.config.gae_lambda,
     )
 
     # Initialize the optimizers.
-    value_optimizer = torch.optim.Adam(value_net.parameters(), lr=wandb.config.learning_rate)
-    policy_optimizer = torch.optim.Adam(policy_net.parameters(), lr=wandb.config.learning_rate)
+    value_lr = wandb.config.value_learning_rate
+    policy_lr = wandb.config.policy_learning_rate
+    value_optimizer = torch.optim.Adam(value_net.parameters(), lr=value_lr)
+    policy_optimizer = torch.optim.Adam(policy_net.parameters(), lr=policy_lr)
 
     for iter_num in tqdm(range(wandb.config.num_iters), smoothing=0.01):
         with time_block("Collect experience"):
             policy_net.eval()
-            replay_buffer.clear()
+            exp_buffer.clear()
             for _ in range(wandb.config.experience_steps):
-                replay_buffer.generate_experience_step()
+                exp_buffer.generate_experience_step()
+            exp_buffer.compute_training_items()
 
-        with time_block("Collate batch"):
-            # Sample and collate a batch.
-            with device:
-                batch = replay_buffer.sample_batch(wandb.config.batch_size)
-                obs_batch = torch.stack([item.obs for item in batch])
-                next_obs_batch = torch.stack(
-                    [
-                        torch.zeros(obs_shape) if item.next_obs is None else item.next_obs
-                        for item in batch
-                    ]
+        total_value_loss = 0
+        total_policy_loss = 0
+        value_grad_norms = []
+        policy_grad_norms = []
+        for batch in exp_buffer.batches(wandb.config.batch_size, wandb.config.num_train_iters):
+            with time_block("Collate batch"):
+                # Sample and collate a batch.
+                with device:
+                    obs_batch = torch.stack([item.obs for item in batch])
+                    action_batch = torch.stack([item.action for item in batch])
+                    log_old_action_prob_batch = torch.stack(
+                        [item.log_old_action_prob for item in batch]
+                    )
+                    return_batch = torch.stack(
+                        [item.return_ * wandb.config.reward_scale for item in batch]
+                    )
+                    advantage_batch = torch.stack([item.advantage for item in batch])
+
+            with time_block("Compute loss and update parameters (value net)"):
+                value_net.train()
+
+                # Compute the loss.
+                predicted_returns = value_net(obs_batch).squeeze(dim=1)
+                value_loss = F.mse_loss(predicted_returns, return_batch)
+                total_value_loss += value_loss.item()
+
+                # Compute the gradient and update the parameters.
+                value_optimizer.zero_grad()
+                value_loss.backward()
+                value_grad_norm = torch.nn.utils.clip_grad_norm_(
+                    value_net.parameters(),
+                    max_norm=wandb.config.grad_clip_norm,
+                    error_if_nonfinite=True,
                 )
-                done_mask = torch.tensor([item.next_obs is None for item in batch])
-                next_action_masks = torch.tensor([item.next_action_mask for item in batch])
-                action_batch = torch.tensor([item.action for item in batch])
-                reward_batch = torch.tensor(
-                    [item.reward * wandb.config.reward_scale for item in batch]
+                value_grad_norms.append(value_grad_norm.item())
+                value_optimizer.step()
+
+            with time_block("Compute loss and update parameters (policy net)"):
+                policy_net.train()
+
+                # Compute the loss.
+                action_logits = policy_net(obs_batch)
+                log_new_action_probs = Categorical(logits=action_logits).log_prob(action_batch)
+                ratios = (log_new_action_probs - log_old_action_prob_batch).exp()
+                unclipped_loss = ratios * advantage_batch
+                clipped_loss = (
+                    1.0 + wandb.config.ppo_epsilon * advantage_batch.sign()
+                ) * advantage_batch
+                policy_loss = -torch.min(unclipped_loss, clipped_loss).mean()
+                total_policy_loss += policy_loss.item()
+
+                # Compute the gradient and update the parameters.
+                policy_optimizer.zero_grad()
+                policy_loss.backward()
+                policy_grad_norm = torch.nn.utils.clip_grad_norm_(
+                    policy_net.parameters(),
+                    max_norm=wandb.config.grad_clip_norm,
+                    error_if_nonfinite=True,
                 )
-
-        with time_block("Compute target Q values"):
-            # Get the target Q values.
-            double_dqn = True
-            with torch.no_grad():
-                next_q_values = target_q_net(next_obs_batch)
-                next_q_values[~next_action_masks] = -torch.inf
-                if double_dqn:
-                    online_next_q_values = q_net(next_obs_batch)
-                    online_next_q_values[~next_action_masks] = -torch.inf
-                    next_actions = online_next_q_values.argmax(dim=1)
-                else:
-                    next_actions = next_q_values.argmax(dim=1)
-                returns = next_q_values[range(len(batch)), next_actions]
-                discounted_returns = wandb.config.discount_factor * returns
-                discounted_returns[done_mask] = 0.0
-                target_q_values = reward_batch + discounted_returns
-
-        with time_block("Compute loss and update parameters (value net)"):
-            value_net.train()
-
-            # Compute the loss.
-            all_predicted_q_values = value_net(obs_batch)
-            predicted_q_values = all_predicted_q_values[range(len(batch)), action_batch]
-            loss = F.mse_loss(predicted_q_values, target_q_values)
-
-            # Compute the gradient and update the parameters.
-            value_optimizer.zero_grad()
-            loss.backward()
-            grad_norm = torch.nn.utils.clip_grad_norm_(
-                value_net.parameters(),
-                max_norm=wandb.config.grad_clip_norm,
-                error_if_nonfinite=True,
-            )
-            value_optimizer.step()
-
-        # TODO: policy loss + step
+                policy_grad_norms.append(policy_grad_norm.item())
+                policy_optimizer.step()
 
         with torch.no_grad():
             # Log metrics.
             metrics = {
-                "loss": loss.item(),
-                "grad_norm": grad_norm,
-                "exploration_epsilon": replay_buffer.policy.epsilon,
-                "avg_predicted_value": (
-                    all_predicted_q_values.amax(dim=1).mean().item() / wandb.config.reward_scale
-                ),
-                "avg_target_q_value": target_q_values.mean() / wandb.config.reward_scale,
+                "avg_value_loss": total_value_loss / wandb.config.num_train_iters,
+                "max_value_grad_norm": max(value_grad_norms),
+                "avg_policy_loss": total_policy_loss / wandb.config.num_train_iters,
+                "max_policy_grad_norm": max(policy_grad_norms),
+                "avg_predicted_value": predicted_returns.mean() / wandb.config.reward_scale,
+                "avg_target_value": return_batch.mean() / wandb.config.reward_scale,
             }
             if iter_num % wandb.config.evaluate_iters == 0:
                 with time_block("Evaluate the current agent"):
@@ -193,6 +206,7 @@ def train():
                     metrics.update(
                         eval_episode_score=eval_episode_score,
                         eval_episode_steps=eval_episode_steps,
+                        # TODO: eval_avg_policy_entropy
                     )
             wandb.log(metrics)
 
@@ -201,10 +215,15 @@ def train():
                 # Save a checkpoint.
                 checkpoint_dir = Path(args.checkpoint_dir)
                 checkpoint_dir.mkdir(exist_ok=True)
-                torch.save(q_net, checkpoint_dir / "q_net-latest.pt")
+                torch.save(policy_net, checkpoint_dir / "policy_net-latest.pt")
                 shutil.copyfile(
-                    checkpoint_dir / "q_net-latest.pt",
-                    checkpoint_dir / f"q_net-iter{iter_num:07}.pt",
+                    checkpoint_dir / "policy_net-latest.pt",
+                    checkpoint_dir / f"policy_net-iter{iter_num:07}.pt",
+                )
+                torch.save(value_net, checkpoint_dir / "value_net-latest.pt")
+                shutil.copyfile(
+                    checkpoint_dir / "value_net-latest.pt",
+                    checkpoint_dir / f"value_net-iter{iter_num:07}.pt",
                 )
 
 
@@ -213,7 +232,7 @@ def visualize_agent():
     gym = PacmanGym(random_start=True)
     gym.reset()
 
-    q_net.eval()
+    policy_net.eval()
 
     print()
     print(f"Step 0")
@@ -224,11 +243,12 @@ def visualize_agent():
         time.sleep(0.2)
 
         obs = torch.from_numpy(gym.obs_numpy()).to(device)
-        action_values = q_net(obs.unsqueeze(0)).squeeze(0)
-        action_values[~torch.tensor(gym.action_mask())] = -torch.inf
-        action = action_values.argmax().item()
+        action_logits = policy_net(obs.unsqueeze(0)).squeeze(0)
+        action_logits[~torch.tensor(gym.action_mask())] = -torch.inf
+        action_dist = Categorical(logits=action_logits)
+        action = action_dist.sample().item()
         with np.printoptions(precision=4, suppress=True):
-            print(f"Q values: {(action_values / reward_scale).numpy(force=True)}  =>  {action}")
+            print(f"Action probabilities: {action_dist.probs.numpy(force=True)}  =>  {action}")
         reward, done = gym.step(action)
         print("reward:", reward)
 
@@ -242,7 +262,7 @@ def visualize_agent():
 
 
 if args.eval:
-    q_net = torch.load(args.eval, map_location=device)
+    policy_net = torch.load(args.eval, map_location=device)
 else:
     try:
         train()

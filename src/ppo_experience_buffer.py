@@ -148,6 +148,8 @@ class ExperienceBuffer:
                 )
             )
 
+            next_values = values
+
     def batches(self, batch_size: int, num_epochs: int) -> Iterator[list[ExperienceTrainingItem]]:
         """
         Returns an iterator over batches of transitions from the buffer.

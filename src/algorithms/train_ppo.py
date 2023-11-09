@@ -125,6 +125,7 @@ def train():
     for iter_num in tqdm(range(wandb.config.num_iters), smoothing=0.01):
         with time_block("Collect experience"):
             policy_net.eval()
+            value_net.eval()
             exp_buffer.clear()
             for _ in range(wandb.config.experience_steps):
                 exp_buffer.generate_experience_step()

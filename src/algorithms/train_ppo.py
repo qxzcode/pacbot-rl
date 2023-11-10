@@ -190,7 +190,7 @@ def train():
                 # Add the entropy term to encourage exploration.
                 avg_entropy = action_dists.entropy().mean()
                 avg_entropies.append(avg_entropy.item())
-                policy_loss += wandb.config.entropy_loss_coef * avg_entropy
+                policy_loss += -wandb.config.entropy_loss_coef * avg_entropy
 
                 # Compute the gradient and update the parameters.
                 policy_optimizer.zero_grad()

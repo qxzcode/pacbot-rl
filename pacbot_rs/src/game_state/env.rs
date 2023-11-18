@@ -29,6 +29,15 @@ pub enum Action {
     Right = 4,
 }
 
+impl Action {
+    /// Converts the given action index into an `Action`.
+    ///
+    /// Panics if index is outside the range `0..5`.
+    pub fn from_index(index: usize) -> Self {
+        Self::try_from_primitive(index.try_into().unwrap()).unwrap()
+    }
+}
+
 impl<'source> FromPyObject<'source> for Action {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let index: u8 = ob.extract()?;
@@ -231,13 +240,13 @@ impl PacmanGym {
 
 impl PacmanGym {
     fn move_one_cell(&mut self, action: Action) {
-        use std::cmp::{max, min};
+        use std::cmp::min;
         let old_pos = self.game_state.pacbot.pos;
         let new_pos = match action {
             Action::Stay => (old_pos.0, old_pos.1),
             Action::Down => (old_pos.0, min(old_pos.1 + 1, grid::GRID[0].len() - 1)),
-            Action::Up => (old_pos.0, max(old_pos.1 - 1, 0)),
-            Action::Left => (max(old_pos.0 - 1, 0), old_pos.1),
+            Action::Up => (old_pos.0, old_pos.1.saturating_sub(1)),
+            Action::Left => (old_pos.0.saturating_sub(1), old_pos.1),
             Action::Right => (min(old_pos.0 + 1, grid::GRID.len() - 1), old_pos.1),
         };
         if grid::is_walkable(new_pos) {

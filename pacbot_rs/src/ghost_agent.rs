@@ -269,8 +269,7 @@ impl GhostAgent {
     }
 
     pub fn respawn(&mut self) {
-        self.current_pos = self.init_moves.0;
-        self.next_pos = self.init_moves.1;
+        (self.current_pos, self.next_pos) = self.init_moves;
         self.direction = self.init_direction;
         self.frightened_counter = 0;
         // This will prevent the ghost from following the respawn path it follows when

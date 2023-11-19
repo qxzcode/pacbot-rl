@@ -31,7 +31,7 @@ hyperparam_defaults = {
     "tree_size": 100,
     "max_episode_length": 1000,
     "discount_factor": 0.99,
-    "evaluate_iters": 5,  # Evaluate every ___ iterations.
+    "evaluate_iters": 1,  # Evaluate every ___ iterations.
     "reward_scale": 1 / 100,
     "grad_clip_norm": 0.1,
     "model": "NetV2",

@@ -30,13 +30,10 @@ impl GhostAgentWrapper {
         GhostPosWrapper { game_state: self.game_state.clone(), get_ghost: self.get_ghost }
     }
 
-    fn clear_start_path(&mut self) -> PyResult<()> {
-        Python::with_gil(|py| {
-            let game_state = self.game_state.borrow(py);
-            let mut ghost = (self.get_ghost)(&game_state).borrow_mut();
-            ghost.start_path = &[];
-            Ok(())
-        })
+    fn clear_start_path(&mut self, py: Python<'_>) {
+        let game_state = self.game_state.borrow(py);
+        let mut ghost = (self.get_ghost)(&game_state).borrow_mut();
+        ghost.start_path = &[];
     }
 }
 
@@ -49,29 +46,25 @@ struct GhostPosWrapper {
 
 #[pymethods]
 impl GhostPosWrapper {
-    fn __getitem__(&self, item: &str) -> PyResult<(usize, usize)> {
-        Python::with_gil(|py| {
-            let game_state = self.game_state.borrow(py);
-            let ghost = (self.get_ghost)(&game_state).borrow();
-            match item {
-                "current" => Ok(ghost.current_pos),
-                "next" => Ok(ghost.next_pos),
-                _ => Err(PyKeyError::new_err(item.to_owned())),
-            }
-        })
+    fn __getitem__(&self, py: Python<'_>, item: &str) -> PyResult<(usize, usize)> {
+        let game_state = self.game_state.borrow(py);
+        let ghost = (self.get_ghost)(&game_state).borrow();
+        match item {
+            "current" => Ok(ghost.current_pos),
+            "next" => Ok(ghost.next_pos),
+            _ => Err(PyKeyError::new_err(item.to_owned())),
+        }
     }
 
-    fn __setitem__(&self, item: &str, pos: (usize, usize)) -> PyResult<()> {
-        Python::with_gil(|py| {
-            let game_state = self.game_state.borrow(py);
-            let mut ghost = (self.get_ghost)(&game_state).borrow_mut();
-            match item {
-                "current" => ghost.current_pos = pos,
-                "next" => ghost.next_pos = pos,
-                _ => return Err(PyKeyError::new_err(item.to_owned())),
-            }
-            Ok(())
-        })
+    fn __setitem__(&self, py: Python<'_>, item: &str, pos: (usize, usize)) -> PyResult<()> {
+        let game_state = self.game_state.borrow(py);
+        let mut ghost = (self.get_ghost)(&game_state).borrow_mut();
+        match item {
+            "current" => ghost.current_pos = pos,
+            "next" => ghost.next_pos = pos,
+            _ => return Err(PyKeyError::new_err(item.to_owned())),
+        }
+        Ok(())
     }
 }
 
@@ -90,78 +83,79 @@ struct GridWrapper {
 
 #[pymethods]
 impl GridWrapper {
-    fn __getitem__(&self, index: usize) -> PyResult<GridRowWrapper> {
-        Python::with_gil(|py| {
-            let game_state = self.game_state.borrow(py);
-            if index < game_state.grid.len() {
-                Ok(GridRowWrapper { game_state: self.game_state.clone(), row: index })
-            } else {
-                Err(PyIndexError::new_err("grid row index out of range"))
-            }
-        })
+    fn __getitem__(&self, py: Python<'_>, index: usize) -> PyResult<GridRowWrapper> {
+        let game_state = self.game_state.borrow(py);
+        if index < game_state.grid.len() {
+            Ok(GridRowWrapper { game_state: self.game_state.clone(), row: index })
+        } else {
+            Err(PyIndexError::new_err("grid row index out of range"))
+        }
     }
 
-    unsafe fn __getbuffer__(&self, view: *mut ffi::Py_buffer, flags: c_int) -> PyResult<()> {
-        Python::with_gil(|py| {
-            let game_state = self.game_state.borrow(py);
-            let grid_shape_strides = Box::new([
-                // shape:
-                game_state.grid.len() as Py_ssize_t,
-                game_state.grid[0].len() as Py_ssize_t,
-                // strides:
-                game_state.grid[0].len() as Py_ssize_t,
-                1,
-            ]);
-            let grid_shape = &grid_shape_strides[..2];
-            let grid_strides = &grid_shape_strides[2..];
+    unsafe fn __getbuffer__(
+        &self,
+        py: Python<'_>,
+        view: *mut ffi::Py_buffer,
+        flags: c_int,
+    ) -> PyResult<()> {
+        let game_state = self.game_state.borrow(py);
+        let grid_shape_strides = Box::new([
+            // shape:
+            game_state.grid.len() as Py_ssize_t,
+            game_state.grid[0].len() as Py_ssize_t,
+            // strides:
+            game_state.grid[0].len() as Py_ssize_t,
+            1,
+        ]);
+        let grid_shape = &grid_shape_strides[..2];
+        let grid_strides = &grid_shape_strides[2..];
 
-            // adapted from https://github.com/PyO3/pyo3/blob/90d50da506d4090c6988b9b82225a21cf437e2e7/tests/test_buffer_protocol.rs#L162-L207
+        // adapted from https://github.com/PyO3/pyo3/blob/90d50da506d4090c6988b9b82225a21cf437e2e7/tests/test_buffer_protocol.rs#L162-L207
 
-            if view.is_null() {
-                return Err(PyBufferError::new_err("View is null"));
-            }
+        if view.is_null() {
+            return Err(PyBufferError::new_err("View is null"));
+        }
 
-            if (flags & ffi::PyBUF_WRITABLE) == ffi::PyBUF_WRITABLE {
-                return Err(PyBufferError::new_err("Object is not writable"));
-            }
+        if (flags & ffi::PyBUF_WRITABLE) == ffi::PyBUF_WRITABLE {
+            return Err(PyBufferError::new_err("Object is not writable"));
+        }
 
-            assert_eq_size!(GridValue, u8);
+        assert_eq_size!(GridValue, u8);
 
-            *view = ffi::Py_buffer {
-                obj: ffi::_Py_NewRef(self.game_state.as_ptr()),
+        *view = ffi::Py_buffer {
+            obj: ffi::_Py_NewRef(self.game_state.as_ptr()),
 
-                buf: game_state.grid.as_ptr() as *mut c_void,
-                len: grid_shape.iter().product(),
-                readonly: 1,
-                itemsize: 1,
+            buf: game_state.grid.as_ptr() as *mut c_void,
+            len: grid_shape.iter().product(),
+            readonly: 1,
+            itemsize: 1,
 
-                format: if (flags & ffi::PyBUF_FORMAT) == ffi::PyBUF_FORMAT {
-                    "B\0".as_ptr() as *mut c_char
-                } else {
-                    ptr::null_mut()
-                },
+            format: if (flags & ffi::PyBUF_FORMAT) == ffi::PyBUF_FORMAT {
+                "B\0".as_ptr() as *mut c_char
+            } else {
+                ptr::null_mut()
+            },
 
-                ndim: 2,
-                shape: if (flags & ffi::PyBUF_ND) == ffi::PyBUF_ND {
-                    grid_shape.as_ptr() as *mut Py_ssize_t
-                } else {
-                    ptr::null_mut()
-                },
+            ndim: 2,
+            shape: if (flags & ffi::PyBUF_ND) == ffi::PyBUF_ND {
+                grid_shape.as_ptr() as *mut Py_ssize_t
+            } else {
+                ptr::null_mut()
+            },
 
-                strides: if (flags & ffi::PyBUF_STRIDES) == ffi::PyBUF_STRIDES {
-                    grid_strides.as_ptr() as *mut Py_ssize_t
-                } else {
-                    ptr::null_mut()
-                },
+            strides: if (flags & ffi::PyBUF_STRIDES) == ffi::PyBUF_STRIDES {
+                grid_strides.as_ptr() as *mut Py_ssize_t
+            } else {
+                ptr::null_mut()
+            },
 
-                suboffsets: ptr::null_mut(),
-                internal: ptr::null_mut(),
-            };
+            suboffsets: ptr::null_mut(),
+            internal: ptr::null_mut(),
+        };
 
-            Box::leak(grid_shape_strides); // don't drop the shape and strides buffer yet
+        Box::leak(grid_shape_strides); // don't drop the shape and strides buffer yet
 
-            Ok(())
-        })
+        Ok(())
     }
 
     unsafe fn __releasebuffer__(&self, view: *mut ffi::Py_buffer) {
@@ -179,15 +173,13 @@ struct GridRowWrapper {
 
 #[pymethods]
 impl GridRowWrapper {
-    fn __getitem__(&self, index: usize) -> PyResult<u8> {
-        Python::with_gil(|py| {
-            let game_state = self.game_state.borrow(py);
-            if index < game_state.grid[self.row].len() {
-                Ok(game_state.grid[self.row][index].into())
-            } else {
-                Err(PyIndexError::new_err("grid column index out of range"))
-            }
-        })
+    fn __getitem__(&self, py: Python<'_>, index: usize) -> PyResult<u8> {
+        let game_state = self.game_state.borrow(py);
+        if index < game_state.grid[self.row].len() {
+            Ok(game_state.grid[self.row][index].into())
+        } else {
+            Err(PyIndexError::new_err("grid column index out of range"))
+        }
     }
 }
 
@@ -204,26 +196,20 @@ struct PacBotWrapper {
 #[pymethods]
 impl PacBotWrapper {
     #[getter]
-    fn pos(&self) -> (usize, usize) {
-        Python::with_gil(|py| {
-            let game_state = self.game_state.borrow(py);
-            game_state.pacbot.pos
-        })
+    fn pos(&self, py: Python<'_>) -> (usize, usize) {
+        let game_state = self.game_state.borrow(py);
+        game_state.pacbot.pos
     }
 
     #[getter]
-    fn direction(&self) -> u8 {
-        Python::with_gil(|py| {
-            let game_state = self.game_state.borrow(py);
-            game_state.pacbot.direction.into()
-        })
+    fn direction(&self, py: Python<'_>) -> u8 {
+        let game_state = self.game_state.borrow(py);
+        game_state.pacbot.direction.into()
     }
 
-    fn update(&self, position: (usize, usize)) {
-        Python::with_gil(|py| {
-            let mut game_state = self.game_state.borrow_mut(py);
-            game_state.pacbot.update(position);
-        })
+    fn update(&self, py: Python<'_>, position: (usize, usize)) {
+        let mut game_state = self.game_state.borrow_mut(py);
+        game_state.pacbot.update(position);
     }
 }
 

@@ -10,7 +10,7 @@ use crate::game_state::env::{Action, PacmanGym};
 type Return = f32;
 
 /// The factor used to discount future rewards each timestep.
-const DISCOUNT_FACTOR: f32 = 0.999;
+const DISCOUNT_FACTOR: f32 = 0.99;
 
 struct SearchTreeEdge {
     policy_prior: f32,
@@ -113,6 +113,7 @@ impl SearchTreeNode {
 
 #[pyclass]
 pub struct MCTSContext {
+    #[pyo3(get)]
     env: PacmanGym,
 
     root: SearchTreeNode,
@@ -179,6 +180,12 @@ impl MCTSContext {
         array_init::map_array_init(&self.root.children, |edge| {
             edge.visit_count as f32 / self.root.visit_count as f32
         })
+    }
+
+    /// Returns the estimated action (Q) values at the root node.
+    #[must_use]
+    pub fn action_values(&self) -> [f32; 5] {
+        array_init::map_array_init(&self.root.children, |edge| edge.expected_return().into())
     }
 
     /// Performs MCTS iterations to grow the tree to (approximately) the given size,

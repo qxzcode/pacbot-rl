@@ -145,23 +145,24 @@ def train():
     num_train_instances_needed = 0
 
     for iter_num in tqdm(range(wandb.config.num_iters), smoothing=0.1):
-        model.eval()
-        num_exp_steps_needed = min(
-            num_exp_steps_needed + wandb.config.experience_steps,
-            exp_buffer.maxlen,
-        )
-        exp_progress = tqdm(desc="Collect experience", unit="step", total=num_exp_steps_needed)
-        while num_exp_steps_needed > 0:
-            # Generate some experience.
-            new_exp = exp_collector.generate_experience()
-            num_exp_steps_needed -= len(new_exp)
+        with torch.no_grad():
+            model.eval()
+            num_exp_steps_needed = min(
+                num_exp_steps_needed + wandb.config.experience_steps,
+                exp_buffer.maxlen,
+            )
+            exp_progress = tqdm(desc="Collect experience", unit="step", total=num_exp_steps_needed)
+            while num_exp_steps_needed > 0:
+                # Generate some experience.
+                new_exp = exp_collector.generate_experience()
+                num_exp_steps_needed -= len(new_exp)
 
-            # Add it to the buffer.
-            exp_buffer.extend(new_exp)
+                # Add it to the buffer.
+                exp_buffer.extend(new_exp)
 
-            # Update the progress bar.
-            exp_progress.update(len(new_exp))
-        exp_progress.close()
+                # Update the progress bar.
+                exp_progress.update(len(new_exp))
+            exp_progress.close()
 
         value_losses = []
         policy_losses = []
@@ -187,14 +188,15 @@ def train():
                 model.train()
                 predictions = model(obs_batch)
                 predicted_values = predictions[:, -1]
-                policy_logits = predictions[:, :-1]
-                policy_logits[~action_mask_batch] = -torch.inf
+                policy_logits = torch.where(action_mask_batch, predictions[:, :-1], -torch.inf)
 
-                # Compute the value loss.
+                # Compute the value loss (MSE).
                 value_loss = F.mse_loss(predicted_values, value_target_batch)
 
-                # Compute the policy loss.
-                policy_loss = F.cross_entropy(policy_logits, policy_target_batch)
+                # Compute the policy loss (masked cross entropy).
+                log_denominator = torch.logsumexp(policy_logits, dim=-1, keepdim=True)
+                unmasked_losses = policy_target_batch * (policy_logits - log_denominator)
+                policy_loss = -torch.where(action_mask_batch, unmasked_losses, 0.0).sum(-1).mean()
 
                 # Compute the overall loss.
                 loss = value_loss + (wandb.config.policy_loss_weight * policy_loss)

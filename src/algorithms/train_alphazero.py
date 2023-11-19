@@ -176,6 +176,7 @@ def train():
                 # Collate the batch.
                 with device:
                     obs_batch = torch.stack([torch.from_numpy(item.obs) for item in batch])
+                    obs_batch = obs_batch.to(device)
                     action_mask_batch = torch.tensor([item.action_mask for item in batch])
                     value_target_batch = torch.tensor([item.value for item in batch])
                     value_target_batch *= wandb.config.reward_scale

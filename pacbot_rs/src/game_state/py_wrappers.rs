@@ -9,7 +9,6 @@ use pyo3::{
     exceptions::{PyBufferError, PyIndexError, PyKeyError},
     ffi::{self, Py_ssize_t},
     prelude::*,
-    AsPyPointer,
 };
 use static_assertions::assert_eq_size;
 

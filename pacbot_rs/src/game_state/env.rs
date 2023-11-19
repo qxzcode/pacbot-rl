@@ -308,11 +308,4 @@ impl PacmanGym {
 
         obs_array
     }
-
-    /// Returns an observation array/tensor constructed from the game state.
-    pub fn obs_tch(&self) -> tch::Tensor {
-        let obs_array = self.obs();
-        let shape: Vec<_> = obs_array.shape().iter().map(|&d| d as i64).collect();
-        tch::Tensor::from_slice(obs_array.as_slice().unwrap()).reshape(shape)
-    }
 }

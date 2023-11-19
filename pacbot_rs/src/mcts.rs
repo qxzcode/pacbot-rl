@@ -1,6 +1,6 @@
 use ndarray::Array3;
 use num_enum::TryFromPrimitive;
-use numpy::IntoPyArray;
+use numpy::{IntoPyArray, PyArray3};
 use ordered_float::NotNan;
 use pyo3::prelude::*;
 
@@ -10,7 +10,7 @@ use crate::game_state::env::{Action, PacmanGym};
 type Return = f32;
 
 /// The factor used to discount future rewards each timestep.
-const DISCOUNT_FACTOR: f32 = 0.99;
+pub const DISCOUNT_FACTOR: f32 = 0.99;
 
 struct SearchTreeEdge {
     policy_prior: f32,
@@ -33,14 +33,14 @@ impl SearchTreeEdge {
             NotNan::new(0.0).unwrap() // TODO: handle this case in a more principled way?
         } else {
             let expected_return = self.total_return / (self.visit_count as f32);
-            NotNan::new(expected_return).expect("expected score is NaN")
+            NotNan::new(expected_return).expect("expected return is NaN")
         }
     }
 
     /// A variant of the PUCT score, similar to that used in AlphaZero.
     #[must_use]
     fn puct_score(&self, parent_visit_count: u32) -> NotNan<f32> {
-        let exploration_rate = 100.0; // TODO: make this a tunable parameter
+        let exploration_rate = 200.0; // TODO: make this a tunable parameter
         let exploration_score = self.policy_prior
             * ((parent_visit_count as f32).sqrt() / ((1 + self.visit_count) as f32));
         self.expected_return() + exploration_rate * exploration_score
@@ -88,6 +88,18 @@ impl SearchTreeNode {
         Action::try_from_primitive(action_index.try_into().unwrap()).unwrap()
     }
 
+    /// Returns the estimated expected return (cumulative reward) for this node/state.
+    #[must_use]
+    fn expected_return(&self) -> Option<NotNan<f32>> {
+        if self.visit_count == 0 {
+            None
+        } else {
+            let total_return: Return = self.children.iter().map(|edge| edge.total_return).sum();
+            let expected_return = total_return / (self.visit_count as f32);
+            Some(NotNan::new(expected_return).expect("expected return is NaN"))
+        }
+    }
+
     /// Returns the maximum node depth in this subtree.
     #[must_use]
     fn max_depth(&self) -> usize {
@@ -114,12 +126,12 @@ impl SearchTreeNode {
 #[pyclass]
 pub struct MCTSContext {
     #[pyo3(get)]
-    env: PacmanGym,
+    pub env: PacmanGym,
 
     root: SearchTreeNode,
 
     #[pyo3(get, set)]
-    evaluator: PyObject,
+    pub evaluator: PyObject,
 }
 
 #[pymethods]
@@ -188,6 +200,12 @@ impl MCTSContext {
         array_init::map_array_init(&self.root.children, |edge| edge.expected_return().into())
     }
 
+    /// Returns the estimated value/return at the root node.
+    #[must_use]
+    pub fn value(&self) -> f32 {
+        self.root.expected_return().expect("no visits at root node").into()
+    }
+
     /// Performs MCTS iterations to grow the tree to (approximately) the given size,
     /// then returns the best action.
     ///
@@ -213,6 +231,12 @@ impl MCTSContext {
     #[must_use]
     pub fn node_count(&self) -> usize {
         self.root.node_count()
+    }
+
+    /// Returns the observation at the current root node.
+    #[must_use]
+    pub fn root_obs_numpy(&self, py: Python<'_>) -> Py<PyArray3<f32>> {
+        self.env.obs().into_pyarray(py).into()
     }
 }
 

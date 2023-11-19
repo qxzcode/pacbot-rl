@@ -28,6 +28,7 @@ impl AlphaZeroConfig {
 #[pyclass(get_all)]
 pub struct ExperienceItem {
     pub obs: Py<PyArray3<f32>>,
+    pub action_mask: [bool; 5],
     pub value: f32,
     pub action_distribution: [f32; 5],
 }
@@ -56,8 +57,9 @@ impl ExperienceCollector {
 
         // Play out an episode, recording the transitions.
         for step_num in 1.. {
-            // Get the observation for the current state.
+            // Get the observation and action mask for the current state.
             let obs = self.mcts_context.root_obs_numpy(py);
+            let action_mask = self.mcts_context.env.action_mask();
 
             // Use MCTS to choose an action.
             let action = self.mcts_context.ponder_and_choose(self.config.tree_size);
@@ -66,8 +68,13 @@ impl ExperienceCollector {
             // Step the environment and get the reward.
             let (reward, done) = self.mcts_context.take_action(action);
 
-            // Add the transition to the experience buffer. The value will be updated later.
-            experience.push(ExperienceItem { obs, value: reward as f32, action_distribution });
+            // Add the transition to the experience buffer.
+            experience.push(ExperienceItem {
+                obs,
+                action_mask,
+                value: reward as f32, // This will be updated below to incorporate future steps.
+                action_distribution,
+            });
 
             // If the episode terminated, stop.
             if done {

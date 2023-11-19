@@ -55,7 +55,7 @@ impl SearchTreeNode {
             .filter(|&(_, (is_valid, _, _))| is_valid)
             .max_by_key(|&(_, (_, child, prior))| {
                 // Compute the PUCT score for this child.
-                let exploration_rate = 200.0; // TODO: make this a config parameter
+                let exploration_rate = 100.0; // TODO: make this a config parameter
 
                 let child_visit_count = child.as_ref().map_or(0, |child| child.visit_count);
                 let child_value = self.child_value(child);
@@ -185,6 +185,12 @@ impl MCTSContext {
         array_init::map_array_init(&self.root.children, |child| {
             child.as_ref().map_or(0.0, |child| child.visit_count as f32 / total_child_visits)
         })
+    }
+
+    /// Returns the policy prior distribution at the root node.
+    #[must_use]
+    pub fn policy_prior(&self) -> [f32; 5] {
+        self.root.policy_priors
     }
 
     /// Returns the estimated action (Q) values at the root node.

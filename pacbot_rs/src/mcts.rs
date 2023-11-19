@@ -4,6 +4,7 @@ use num_enum::TryFromPrimitive;
 use numpy::{IntoPyArray, PyArray3};
 use ordered_float::NotNan;
 use pyo3::prelude::*;
+use rand_distr::{Dirichlet, Distribution};
 
 use crate::game_state::env::{Action, PacmanGym};
 
@@ -54,7 +55,7 @@ impl SearchTreeNode {
             .filter(|&(_, (is_valid, _, _))| is_valid)
             .max_by_key(|&(_, (_, child, prior))| {
                 // Compute the PUCT score for this child.
-                let exploration_rate = 200.0; // TODO: make this a tunable parameter
+                let exploration_rate = 200.0; // TODO: make this a config parameter
 
                 let child_visit_count = child.as_ref().map_or(0, |child| child.visit_count);
                 let child_value = self.child_value(child);
@@ -68,13 +69,13 @@ impl SearchTreeNode {
         action_index
     }
 
-    /// Returns the valid action with the highest expected return.
+    /// Returns the valid action with the highest visit count.
     #[must_use]
     fn best_action(&self, env: &PacmanGym) -> Action {
         let (action_index, _) = izip!(env.action_mask(), &self.children)
             .enumerate()
             .filter(|&(_, (is_valid, _))| is_valid)
-            .max_by_key(|(_, (_, child))| self.child_value(child))
+            .max_by_key(|(_, (_, child))| child.as_ref().map_or(0, |child| child.visit_count))
             .unwrap();
         Action::try_from_primitive(action_index.try_into().unwrap()).unwrap()
     }
@@ -129,8 +130,9 @@ impl MCTSContext {
     /// Creates a new MCTS context with the given environment and evaluator.
     #[new]
     pub fn new(env: PacmanGym, evaluator: PyObject) -> Self {
-        let root_evaluation = eval_obs(env.obs(), &evaluator);
-        Self { env, root: SearchTreeNode::new_visited(root_evaluation), evaluator }
+        let mut obj = Self { env, root: SearchTreeNode::new_terminal(), evaluator };
+        obj.reset_root();
+        obj
     }
 
     /// Resets the environment and search tree, starting a new episode.
@@ -139,8 +141,7 @@ impl MCTSContext {
         self.env.reset();
 
         // Reset the search tree.
-        let root_evaluation = eval_obs(self.env.obs(), &self.evaluator);
-        self.root = SearchTreeNode::new_visited(root_evaluation);
+        self.reset_root();
     }
 
     /// Takes the given action, stepping the environment and updating the search tree root to the
@@ -157,19 +158,18 @@ impl MCTSContext {
 
         if !done {
             // Update the root node.
-            self.root = self.root.children[u8::from(action) as usize]
-                .take()
-                .map(|child_box| *child_box)
-                .unwrap_or_else(|| {
-                    let root_evaluation = eval_obs(self.env.obs(), &self.evaluator);
-                    SearchTreeNode::new_visited(root_evaluation)
-                });
+            if let Some(child) = self.root.children[u8::from(action) as usize].take() {
+                self.root = *child;
+                self.add_root_policy_noise();
+            } else {
+                self.reset_root();
+            }
         }
 
         (reward, done)
     }
 
-    /// Returns the action at the root with the highest expected return.
+    /// Returns the action at the root with the highest visit count.
     #[must_use]
     pub fn best_action(&self) -> Action {
         self.root.best_action(&self.env)
@@ -207,7 +207,7 @@ impl MCTSContext {
         let num_iterations = max_tree_size.saturating_sub(self.node_count());
         for _ in 0..num_iterations {
             let (trajectory, leaf_obs) = self.select_trajectory();
-            let leaf_evaluation = leaf_obs.map(|leaf_obs| eval_obs(leaf_obs, &self.evaluator));
+            let leaf_evaluation = leaf_obs.map(|(obs, mask)| eval_obs(obs, mask, &self.evaluator));
             self.backprop_trajectory(&trajectory, leaf_evaluation);
         }
 
@@ -246,6 +246,36 @@ struct LeafEvaluation {
 }
 
 impl MCTSContext {
+    /// Resets the root to a freshly-evaluated node.
+    fn reset_root(&mut self) {
+        let root_evaluation = eval_obs(self.env.obs(), self.env.action_mask(), &self.evaluator);
+        self.root = SearchTreeNode::new_visited(root_evaluation);
+        self.add_root_policy_noise();
+    }
+
+    /// Adds Dirichlet noise to the policy prior probabilities at the root.
+    fn add_root_policy_noise(&mut self) {
+        // TODO: allow disabling this for evaluation
+        let noise_mix_amount = 0.25; // TODO: make this a config parameter
+        let dirichlet_alpha = 11.0; // TODO: make this a config parameter
+
+        let action_mask = self.env.action_mask();
+        let num_valid_actions = action_mask.iter().filter(|&&m| m).count();
+
+        // Sample dirichlet noise.
+        let alpha = dirichlet_alpha / num_valid_actions as f32;
+        let dirichlet = Dirichlet::new_with_size(alpha, num_valid_actions).unwrap();
+        let noise = dirichlet.sample(&mut rand::thread_rng());
+
+        // Mix the noise into the policy prior probabilities for the valid actions.
+        izip!(&mut self.root.policy_priors, action_mask)
+            .filter_map(|(prior, is_action_valid)| is_action_valid.then_some(prior))
+            .zip(noise)
+            .for_each(|(prior, noise)| {
+                *prior = (1.0 - noise_mix_amount) * (*prior) + noise_mix_amount * noise;
+            });
+    }
+
     /// Selects a trajectory starting at the current root node/state and ending at either
     /// an unexpanded node or a terminal state.
     ///
@@ -254,7 +284,8 @@ impl MCTSContext {
     ///
     /// Panics if `self.env.is_done()`.
     #[must_use]
-    fn select_trajectory(&self) -> (Vec<Transition>, Option<Array3<f32>>) {
+    #[allow(clippy::type_complexity)]
+    fn select_trajectory(&self) -> (Vec<Transition>, Option<(Array3<f32>, [bool; 5])>) {
         assert!(!self.env.is_done());
         let mut env = self.env.clone();
 
@@ -277,7 +308,7 @@ impl MCTSContext {
                 node = child_node;
             } else {
                 // We've reached an unexpanded node; stop and return the observation.
-                return (trajectory, Some(env.obs()));
+                return (trajectory, Some((env.obs(), env.action_mask())));
             }
         }
     }
@@ -334,13 +365,14 @@ impl MCTSContext {
 
 /// Evaluates the given observation using the given neural evaluation function.
 #[must_use]
-fn eval_obs(obs: Array3<f32>, evaluator: &PyObject) -> LeafEvaluation {
+fn eval_obs(obs: Array3<f32>, action_mask: [bool; 5], evaluator: &PyObject) -> LeafEvaluation {
     Python::with_gil(|py| {
         // Convert obs into a NumPy array.
         let obs_numpy = obs.into_pyarray(py);
 
         // Run the evaluator.
-        let result = evaluator.call1(py, (obs_numpy,)).expect("error running evaluator");
+        let result =
+            evaluator.call1(py, (obs_numpy, action_mask)).expect("error running evaluator");
 
         // Convert the result to Rust types.
         let (value, policy) = result.extract(py).expect("evaluator should return (value, policy)");

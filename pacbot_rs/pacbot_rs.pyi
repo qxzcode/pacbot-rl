@@ -61,7 +61,7 @@ class PacmanGym:
     @property
     def random_start(self) -> bool: ...
 
-EvaluatorFunc = Callable[[np.ndarray], tuple[float, list[float]]]
+EvaluatorFunc = Callable[[np.ndarray, list[bool]], tuple[float, list[float]]]
 
 class MCTSContext:
     def __init__(self, env: PacmanGym, evaluator: EvaluatorFunc) -> None: ...

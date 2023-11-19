@@ -101,7 +101,7 @@ def model_evaluator(obs: np.ndarray, action_mask: np.ndarray) -> tuple[np.ndarra
 
 
 @torch.no_grad()
-def evaluate_episode(max_steps: int = 1000) -> tuple[int, int]:
+def evaluate_episode(max_steps: int = 1000, greedy: bool = True) -> tuple[int, int]:
     """
     Performs a single evaluation episode.
 
@@ -111,17 +111,28 @@ def evaluate_episode(max_steps: int = 1000) -> tuple[int, int]:
 
     env = PacmanGym(random_start=True)
     env.reset()
-    mc = MCTSContext(env, model_evaluator)
-    mc.reset()
+    if greedy:
+        for step_num in range(1, max_steps + 1):
+            _, policy = model_evaluator(env.obs_numpy()[None], np.array([env.action_mask()]))
+            action = policy.squeeze(0).argmax().item()
+            _, done = env.step(action)
 
-    for step_num in range(1, max_steps + 1):
-        action = mc.ponder_and_choose(wandb.config.tree_size)
-        _, done = mc.take_action(action)
+            if done:
+                break
 
-        if done:
-            break
+        return env.score(), step_num
+    else:
+        mc = MCTSContext(env, model_evaluator)
+        mc.reset()
 
-    return mc.env.score(), step_num
+        for step_num in range(1, max_steps + 1):
+            action = mc.ponder_and_choose(wandb.config.tree_size)
+            _, done = mc.take_action(action)
+
+            if done:
+                break
+
+        return mc.env.score(), step_num
 
 
 def train():

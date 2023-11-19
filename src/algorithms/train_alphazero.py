@@ -16,14 +16,12 @@ from tqdm import tqdm
 from pacbot_rs import AlphaZeroConfig, ExperienceCollector, ExperienceItem, MCTSContext, PacmanGym
 
 import models
-from policies import PNetPolicy
-from ppo_experience_buffer import ExperienceBuffer
 from timing import time_block
 
 
 hyperparam_defaults = {
-    "learning_rate": 0.001,
-    "policy_loss_weight": 1.0,
+    "learning_rate": 0.0001,
+    "policy_loss_weight": 10.0,
     "num_iters": 10_000,
     "batch_size": 2048,
     "train_instances_per_iter": 2048 * 5,  # Train on this many experience instances per iteration.
@@ -80,11 +78,11 @@ print(f"model has {sum(p.numel() for p in model.parameters())} parameters")
 has_model_updated = False
 
 
-def model_evaluator(obs, action_mask):
+def model_evaluator(obs: np.ndarray, action_mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     if has_model_updated:
         # Get value and policy predictions from the model.
-        obs = torch.from_numpy(obs).to(device).unsqueeze(0)
-        action_mask = torch.tensor(action_mask, device=device).unsqueeze(0)
+        obs = torch.from_numpy(obs).to(device)
+        action_mask = torch.from_numpy(action_mask).to(device)
 
         predictions = model(obs)
         values = predictions[:, -1]
@@ -94,11 +92,12 @@ def model_evaluator(obs, action_mask):
         policy_dist = Categorical(logits=policy_logits)
         policy_probs = policy_dist.probs
 
-        return values.squeeze(0), policy_probs.squeeze(0).tolist()
+        return values.numpy(force=True), policy_probs.numpy(force=True)
     else:
         # The model is freshly-initialized, so just return uniform predictions for speed.
-        action_mask = np.asarray(action_mask)
-        return 0.0, action_mask / action_mask.sum()
+        value = np.zeros(obs.shape[0], dtype=np.float32)
+        policy = action_mask / action_mask.sum(axis=-1, keepdims=True, dtype=np.float32)
+        return value, policy
 
 
 @torch.no_grad()
@@ -135,6 +134,7 @@ def train():
             tree_size=wandb.config.tree_size,
             max_episode_length=wandb.config.max_episode_length,
             discount_factor=wandb.config.discount_factor,
+            num_parallel_envs=wandb.config.num_parallel_envs,
         ),
     )
     exp_buffer = deque[ExperienceItem](maxlen=wandb.config.experience_buffer_size)
@@ -269,7 +269,7 @@ def visualize_agent():
     for step_num in itertools.count(1):
         elapsed = time.perf_counter() - start
         sleep_time = max(0, 0.2 - elapsed)
-        print(sleep_time)
+        # print(sleep_time)
         time.sleep(sleep_time)
         start = time.perf_counter()
 

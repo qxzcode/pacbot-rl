@@ -1,7 +1,7 @@
 use itertools::izip;
-use ndarray::Array3;
+use ndarray::prelude::*;
 use num_enum::TryFromPrimitive;
-use numpy::{IntoPyArray, PyArray3};
+use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3, PyReadonlyArray1, PyReadonlyArray2};
 use ordered_float::NotNan;
 use pyo3::prelude::*;
 use rand_distr::{Dirichlet, Distribution};
@@ -240,15 +240,15 @@ impl MCTSContext {
 }
 
 #[derive(Debug)]
-struct Transition {
+pub struct Transition {
     action_index: usize,
     reward: i32,
 }
 
 #[derive(Clone, Copy)]
-struct LeafEvaluation {
-    value: Return,
-    policy: [f32; 5],
+pub struct LeafEvaluation {
+    pub value: Return,
+    pub policy: [f32; 5],
 }
 
 impl MCTSContext {
@@ -291,7 +291,7 @@ impl MCTSContext {
     /// Panics if `self.env.is_done()`.
     #[must_use]
     #[allow(clippy::type_complexity)]
-    fn select_trajectory(&self) -> (Vec<Transition>, Option<(Array3<f32>, [bool; 5])>) {
+    pub fn select_trajectory(&self) -> (Vec<Transition>, Option<(Array3<f32>, [bool; 5])>) {
         assert!(!self.env.is_done());
         let mut env = self.env.clone();
 
@@ -321,7 +321,7 @@ impl MCTSContext {
 
     /// Expand a new leaf node and update the nodes along a trajectory by backpropagating rewards
     /// from the given leaf return.
-    fn backprop_trajectory(
+    pub fn backprop_trajectory(
         &mut self,
         trajectory: &[Transition],
         leaf_evaluation: Option<LeafEvaluation>,
@@ -369,19 +369,43 @@ impl MCTSContext {
     }
 }
 
-/// Evaluates the given observation using the given neural evaluation function.
+/// Evaluates the given observation using the given evaluation function.
 #[must_use]
-fn eval_obs(obs: Array3<f32>, action_mask: [bool; 5], evaluator: &PyObject) -> LeafEvaluation {
+pub fn eval_obs(obs: Array3<f32>, action_mask: [bool; 5], evaluator: &PyObject) -> LeafEvaluation {
+    let obs = obs.insert_axis(Axis(0));
+    let action_mask = Array1::<bool>::from_vec(action_mask.into()).insert_axis(Axis(0));
     Python::with_gil(|py| {
-        // Convert obs into a NumPy array.
-        let obs_numpy = obs.into_pyarray(py);
-
-        // Run the evaluator.
-        let result =
-            evaluator.call1(py, (obs_numpy, action_mask)).expect("error running evaluator");
-
-        // Convert the result to Rust types.
-        let (value, policy) = result.extract(py).expect("evaluator should return (value, policy)");
+        let (value, policy) = eval_obs_batch(py, obs, action_mask, evaluator);
+        let value = value.as_array()[0];
+        let policy = policy.as_array().index_axis_move(Axis(0), 0);
+        let policy = array_init::from_iter(policy.iter().copied())
+            .expect("policy did not have enough elements");
         LeafEvaluation { value, policy }
     })
+}
+
+/// Evaluates the given observation using the given evaluation function.
+#[must_use]
+pub fn eval_obs_batch<'py>(
+    py: Python<'py>,
+    obs: Array4<f32>,
+    action_mask: Array2<bool>,
+    evaluator: &PyObject,
+) -> (PyReadonlyArray1<'py, f32>, PyReadonlyArray2<'py, f32>) {
+    // Convert obs and action_mask into NumPy arrays.
+    let obs_numpy = obs.into_pyarray(py);
+    let action_mask_numpy = action_mask.into_pyarray(py);
+
+    // Run the evaluator.
+    let result =
+        evaluator.call1(py, (obs_numpy, action_mask_numpy)).expect("error running evaluator");
+
+    // Cast the result to the expected types.
+    let (value, policy): (PyObject, PyObject) =
+        result.extract(py).expect("evaluator should return (value, policy)");
+    let value: &PyArray1<f32> = value.extract(py).expect("bad `value` type");
+    let value = IntoPy::<Py<PyArray1<f32>>>::into_py(value, py).into_ref(py).readonly();
+    let policy: &PyArray2<f32> = policy.extract(py).expect("bad `policy` type");
+    let policy = IntoPy::<Py<PyArray2<f32>>>::into_py(policy, py).into_ref(py).readonly();
+    (value, policy)
 }

@@ -1,6 +1,7 @@
 from typing import Callable, Literal, Mapping, Optional
 
 import numpy as np
+from numpy.typing import NDArray
 
 class GhostAgent:
     def clear_start_path(self) -> None: ...
@@ -61,7 +62,10 @@ class PacmanGym:
     @property
     def random_start(self) -> bool: ...
 
-EvaluatorFunc = Callable[[np.ndarray, list[bool]], tuple[float, list[float]]]
+EvaluatorFunc = Callable[
+    [NDArray[np.float32], NDArray[np.bool_]],
+    tuple[NDArray[np.float32], NDArray[np.float32]],
+]
 
 class MCTSContext:
     def __init__(self, env: PacmanGym, evaluator: EvaluatorFunc) -> None: ...
@@ -82,12 +86,17 @@ class MCTSContext:
 
 class AlphaZeroConfig:
     def __init__(
-        self, tree_size: int, max_episode_length: int, discount_factor: float
+        self,
+        tree_size: int,
+        max_episode_length: int,
+        discount_factor: float,
+        num_parallel_envs: int,
     ) -> None: ...
 
     tree_size: int
     max_episode_length: int
     discount_factor: float
+    num_parallel_envs: int
 
 class ExperienceItem:
     @property

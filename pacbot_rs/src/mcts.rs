@@ -129,19 +129,19 @@ pub struct MCTSContext {
 impl MCTSContext {
     /// Creates a new MCTS context with the given environment and evaluator.
     #[new]
-    pub fn new(env: PacmanGym, evaluator: PyObject) -> Self {
+    pub fn new(env: PacmanGym, evaluator: PyObject) -> PyResult<Self> {
         let mut obj = Self { env, root: SearchTreeNode::new_terminal(), evaluator };
-        obj.reset_root();
-        obj
+        obj.reset_root()?;
+        Ok(obj)
     }
 
     /// Resets the environment and search tree, starting a new episode.
-    pub fn reset(&mut self) {
+    pub fn reset(&mut self) -> PyResult<()> {
         // Reset the environment.
         self.env.reset();
 
         // Reset the search tree.
-        self.reset_root();
+        self.reset_root()
     }
 
     /// Takes the given action, stepping the environment and updating the search tree root to the
@@ -150,7 +150,7 @@ impl MCTSContext {
     /// Returns (reward, done).
     ///
     /// Panics if `self.env.is_done()`.
-    pub fn take_action(&mut self, action: Action) -> (i32, bool) {
+    pub fn take_action(&mut self, action: Action) -> PyResult<(i32, bool)> {
         assert!(!self.env.is_done());
 
         // Step the environment.
@@ -162,11 +162,11 @@ impl MCTSContext {
                 self.root = *child;
                 self.add_root_policy_noise();
             } else {
-                self.reset_root();
+                self.reset_root()?;
             }
         }
 
-        (reward, done)
+        Ok((reward, done))
     }
 
     /// Returns the action at the root with the highest visit count.
@@ -209,15 +209,19 @@ impl MCTSContext {
     /// then returns the best action.
     ///
     /// Panics if `self.env.is_done()`.
-    pub fn ponder_and_choose(&mut self, max_tree_size: usize) -> Action {
+    pub fn ponder_and_choose(&mut self, max_tree_size: usize) -> PyResult<Action> {
         let num_iterations = max_tree_size.saturating_sub(self.node_count());
         for _ in 0..num_iterations {
             let (trajectory, leaf_obs) = self.select_trajectory();
-            let leaf_evaluation = leaf_obs.map(|(obs, mask)| eval_obs(obs, mask, &self.evaluator));
+            let leaf_evaluation = if let Some((obs, mask)) = leaf_obs {
+                Some(eval_obs(obs, mask, &self.evaluator)?)
+            } else {
+                None
+            };
             self.backprop_trajectory(&trajectory, leaf_evaluation);
         }
 
-        self.best_action()
+        Ok(self.best_action())
     }
 
     /// Returns the maximum node depth in the current search tree.
@@ -253,10 +257,11 @@ pub struct LeafEvaluation {
 
 impl MCTSContext {
     /// Resets the root to a freshly-evaluated node.
-    fn reset_root(&mut self) {
-        let root_evaluation = eval_obs(self.env.obs(), self.env.action_mask(), &self.evaluator);
+    fn reset_root(&mut self) -> PyResult<()> {
+        let root_evaluation = eval_obs(self.env.obs(), self.env.action_mask(), &self.evaluator)?;
         self.root = SearchTreeNode::new_visited(root_evaluation);
         self.add_root_policy_noise();
+        Ok(())
     }
 
     /// Adds Dirichlet noise to the policy prior probabilities at the root.
@@ -370,42 +375,42 @@ impl MCTSContext {
 }
 
 /// Evaluates the given observation using the given evaluation function.
-#[must_use]
-pub fn eval_obs(obs: Array3<f32>, action_mask: [bool; 5], evaluator: &PyObject) -> LeafEvaluation {
+pub fn eval_obs(
+    obs: Array3<f32>,
+    action_mask: [bool; 5],
+    evaluator: &PyObject,
+) -> PyResult<LeafEvaluation> {
     let obs = obs.insert_axis(Axis(0));
     let action_mask = Array1::<bool>::from_vec(action_mask.into()).insert_axis(Axis(0));
     Python::with_gil(|py| {
-        let (value, policy) = eval_obs_batch(py, obs, action_mask, evaluator);
+        let (value, policy) = eval_obs_batch(py, obs, action_mask, evaluator)?;
         let value = value.as_array()[0];
         let policy = policy.as_array().index_axis_move(Axis(0), 0);
         let policy = array_init::from_iter(policy.iter().copied())
             .expect("policy did not have enough elements");
-        LeafEvaluation { value, policy }
+        Ok(LeafEvaluation { value, policy })
     })
 }
 
 /// Evaluates the given observation using the given evaluation function.
-#[must_use]
 pub fn eval_obs_batch<'py>(
     py: Python<'py>,
     obs: Array4<f32>,
     action_mask: Array2<bool>,
     evaluator: &PyObject,
-) -> (PyReadonlyArray1<'py, f32>, PyReadonlyArray2<'py, f32>) {
+) -> PyResult<(PyReadonlyArray1<'py, f32>, PyReadonlyArray2<'py, f32>)> {
     // Convert obs and action_mask into NumPy arrays.
     let obs_numpy = obs.into_pyarray(py);
     let action_mask_numpy = action_mask.into_pyarray(py);
 
     // Run the evaluator.
-    let result =
-        evaluator.call1(py, (obs_numpy, action_mask_numpy)).expect("error running evaluator");
+    let result = evaluator.call1(py, (obs_numpy, action_mask_numpy))?;
 
     // Cast the result to the expected types.
-    let (value, policy): (PyObject, PyObject) =
-        result.extract(py).expect("evaluator should return (value, policy)");
-    let value: &PyArray1<f32> = value.extract(py).expect("bad `value` type");
+    let (value, policy): (PyObject, PyObject) = result.extract(py)?;
+    let value: &PyArray1<f32> = value.extract(py)?;
     let value = IntoPy::<Py<PyArray1<f32>>>::into_py(value, py).into_ref(py).readonly();
-    let policy: &PyArray2<f32> = policy.extract(py).expect("bad `policy` type");
+    let policy: &PyArray2<f32> = policy.extract(py)?;
     let policy = IntoPy::<Py<PyArray2<f32>>>::into_py(policy, py).into_ref(py).readonly();
-    (value, policy)
+    Ok((value, policy))
 }

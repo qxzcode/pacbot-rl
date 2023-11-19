@@ -66,35 +66,38 @@ pub struct ExperienceCollector {
 #[pymethods]
 impl ExperienceCollector {
     #[new]
-    pub fn new(evaluator: PyObject, config: AlphaZeroConfig) -> Self {
+    pub fn new(evaluator: PyObject, config: AlphaZeroConfig) -> PyResult<Self> {
         let mcts_envs = (0..config.num_parallel_envs)
             .map(|_| {
                 let mut env = PacmanGym::new(true);
                 env.reset();
-                ParallelEnv {
-                    mcts_context: MCTSContext::new(env, evaluator.clone()),
+                Ok(ParallelEnv {
+                    mcts_context: MCTSContext::new(env, evaluator.clone())?,
                     num_search_iters_remaining: config.tree_size - 1,
                     experience: Vec::new(),
-                }
+                })
             })
-            .collect();
-        Self { config, evaluator, mcts_envs }
+            .collect::<PyResult<_>>()?;
+        Ok(Self { config, evaluator, mcts_envs })
     }
 
     /// Generates and returns at least one episode of experience.
-    pub fn generate_experience(&mut self) -> Vec<ExperienceItem> {
+    pub fn generate_experience(&mut self) -> PyResult<Vec<ExperienceItem>> {
         let mut final_experience = Vec::new();
         while final_experience.is_empty() {
-            self.generate_experience_step(&mut final_experience);
+            self.generate_experience_step(&mut final_experience)?;
         }
-        final_experience
+        Ok(final_experience)
     }
 }
 
 impl ExperienceCollector {
     /// Performs one parallel MCTS search+eval iteration, across all the parallel environments.
     /// Appends any experience from completed episodes into the provided `Vec`.
-    fn generate_experience_step(&mut self, final_experience: &mut Vec<ExperienceItem>) {
+    fn generate_experience_step(
+        &mut self,
+        final_experience: &mut Vec<ExperienceItem>,
+    ) -> PyResult<()> {
         assert!(!itertools::any(&self.mcts_envs, |env| env.mcts_context.env.is_done()));
 
         // Gather a batch of observations from all the parallel environments.
@@ -115,19 +118,19 @@ impl ExperienceCollector {
         let obs = stack!(observations.map(|(obs, _)| obs.view()));
 
         // Evaluate the batch.
-        let mut leaf_evaluations = Python::with_gil(|py| {
-            let (values, policies) = eval_obs_batch(py, obs, action_masks, &self.evaluator);
+        let mut leaf_evaluations = Python::with_gil(|py| -> PyResult<_> {
+            let (values, policies) = eval_obs_batch(py, obs, action_masks, &self.evaluator)?;
 
             // Zip the results into an iterator of LeafEvaluation objects.
             let policies = policies.as_array();
-            izip!(values.as_array(), policies.outer_iter())
+            Ok(izip!(values.as_array(), policies.outer_iter())
                 .map(|(&value, policy)| LeafEvaluation {
                     value,
                     policy: array_init::from_iter(policy.iter().copied()).unwrap(),
                 })
                 .collect_vec()
-                .into_iter()
-        });
+                .into_iter())
+        })?;
 
         // Backpropagate all the environments' trajectories, distributing the evaluations as needed.
         // Also collect experience from any completed episodes.
@@ -146,7 +149,7 @@ impl ExperienceCollector {
                 let action = env.mcts_context.best_action();
 
                 // Step the environment and get the reward.
-                let (reward, done) = env.mcts_context.take_action(action);
+                let (reward, done) = env.mcts_context.take_action(action)?;
 
                 // Add the transition to the env's local experience buffer.
                 env.experience.push(ExperienceItem {
@@ -169,18 +172,18 @@ impl ExperienceCollector {
                     final_experience.append(&mut env.experience);
 
                     // Reset the environment and search context.
-                    env.mcts_context.reset();
+                    env.mcts_context.reset()
                 };
 
                 if done {
                     // The episode terminated.
-                    end_episode(env);
+                    end_episode(env)?;
                 } else if env.experience.len() >= self.config.max_episode_length {
                     // We've reached the maximum allowed episode length; truncate the episode.
                     // Bootstrap the remaining return from the current value estimate.
                     env.experience.last_mut().unwrap().value +=
                         self.config.discount_factor * env.mcts_context.value();
-                    end_episode(env);
+                    end_episode(env)?;
                 }
 
                 // Reset the number of search iters for the next action.
@@ -188,5 +191,7 @@ impl ExperienceCollector {
                     self.config.tree_size.saturating_sub(env.mcts_context.node_count());
             }
         }
+
+        Ok(())
     }
 }

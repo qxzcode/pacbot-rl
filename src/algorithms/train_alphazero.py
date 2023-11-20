@@ -290,7 +290,7 @@ def visualize_agent():
 
         action = mc.ponder_and_choose(args.tree_size)
         with np.printoptions(precision=4, suppress=True):
-            print(f"Predicted value:     {pred_value.item() / args.reward_scale:.2f}")
+            print(f"Predicted value:     {pred_value.item():.2f}")
             print(f"Policy prior:        {pred_policy.squeeze(0)}")
             print(f"Action distribution: {np.array(mc.action_distribution())}  =>  {action}")
         reward, done = mc.take_action(action)

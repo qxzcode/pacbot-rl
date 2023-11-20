@@ -85,7 +85,7 @@ def model_evaluator(obs: np.ndarray, action_mask: np.ndarray) -> tuple[np.ndarra
         action_mask = torch.from_numpy(action_mask).to(device)
 
         predictions = model(obs)
-        values = predictions[:, -1]
+        values = predictions[:, -1] / wandb.config.reward_scale
         policy_logits = predictions[:, :-1]
         policy_logits[~action_mask] = -torch.inf
 

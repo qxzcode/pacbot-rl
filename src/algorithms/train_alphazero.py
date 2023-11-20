@@ -293,6 +293,7 @@ def visualize_agent():
             print(f"Predicted value:     {pred_value.item():.2f}")
             print(f"Policy prior:        {pred_policy.squeeze(0)}")
             print(f"Action distribution: {np.array(mc.action_distribution())}  =>  {action}")
+            print(f"Max depth: {mc.max_depth():>2}    Node count:  {mc.node_count()}")
         reward, done = mc.take_action(action)
         print("reward:", reward)
 

@@ -284,9 +284,14 @@ def visualize_agent():
         time.sleep(sleep_time)
         start = time.perf_counter()
 
+        obs = mc.env.obs_numpy()[None]
+        action_mask = np.array([mc.env.action_mask()])
+        pred_value, pred_policy = model_evaluator(obs, action_mask)
+
         action = mc.ponder_and_choose(args.tree_size)
         with np.printoptions(precision=4, suppress=True):
-            print(f"Policy prior:        {np.array(mc.policy_prior())}")
+            print(f"Predicted value:     {pred_value.item() / args.reward_scale:.2f}")
+            print(f"Policy prior:        {pred_policy.squeeze(0)}")
             print(f"Action distribution: {np.array(mc.action_distribution())}  =>  {action}")
         reward, done = mc.take_action(action)
         print("reward:", reward)

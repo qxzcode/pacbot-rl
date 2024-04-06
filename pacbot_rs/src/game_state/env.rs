@@ -8,7 +8,7 @@ use rand::seq::SliceRandom;
 
 use crate::{
     grid::{self, coords_to_node, NODE_COORDS, VALID_ACTIONS},
-    variables::{self, GridValue},
+    variables::{self, GridValue, STARTING_LIVES},
 };
 
 use super::{GameState, GameStateState};
@@ -162,9 +162,18 @@ impl PacmanGym {
 
         let done = self.is_done();
 
-        // reward is raw difference in game score, or -200 if done
-        let reward =
-            if done { -200 } else { self.game_state.score as i32 - self.last_score as i32 };
+        // The reward is raw difference in game score, minus a penalty for dying or
+        // plus a bonus for clearing the board.
+        let mut reward = self.game_state.score as i32 - self.last_score as i32;
+        if done {
+            if self.game_state.lives < STARTING_LIVES {
+                // Pacman died.
+                reward += -200;
+            } else {
+                // Pacman cleared the board! Good Pacman.
+                reward += 500;
+            }
+        }
         self.last_score = self.game_state.score;
 
         (reward, done)
@@ -172,6 +181,10 @@ impl PacmanGym {
 
     pub fn score(&self) -> u32 {
         self.game_state.score
+    }
+
+    pub fn lives(&self) -> u8 {
+        self.game_state.lives
     }
 
     pub fn is_done(&self) -> bool {

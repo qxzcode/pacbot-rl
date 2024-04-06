@@ -27,6 +27,7 @@ hyperparam_defaults = {
     "num_iters": 150_000,
     "replay_buffer_size": 10_000,
     "num_parallel_envs": 32,
+    "random_start_proportion": 0.5,
     "experience_steps": 4,
     "target_network_update_steps": 500,  # Update the target network every ___ steps.
     "evaluate_steps": 10,  # Evaluate every ___ steps.
@@ -40,6 +41,7 @@ hyperparam_defaults = {
 
 parser = ArgumentParser()
 parser.add_argument("--eval", metavar="CHECKPOINT", default=None)
+parser.add_argument("--finetune", metavar="CHECKPOINT", default=None)
 parser.add_argument("--no-wandb", action="store_true")
 parser.add_argument("--checkpoint-dir", default="checkpoints")
 parser.add_argument("--device", default=None)
@@ -61,7 +63,7 @@ print(f"Using device: {device}")
 reward_scale: float = args.reward_scale
 wandb.init(
     project="pacbot-ind-study",
-    tags=["DQN"],
+    tags=["DQN"] + (["finetuning"] if args.finetune else []),
     config={
         "device": str(device),
         **{name: getattr(args, name) for name in hyperparam_defaults.keys()},
@@ -76,16 +78,19 @@ num_actions = 5
 model_class = getattr(models, wandb.config.model)
 q_net = model_class(obs_shape, num_actions).to(device)
 print(f"q_net has {sum(p.numel() for p in q_net.parameters())} parameters")
+if args.finetune:
+    q_net = torch.load(args.finetune, map_location=device)
+    print(f"Finetuning from parameters from {args.finetune}")
 
 
 @torch.no_grad()
-def evaluate_episode(max_steps: int = 1000) -> tuple[int, int]:
+def evaluate_episode(max_steps: int = 1000) -> tuple[int, int, bool]:
     """
     Performs a single evaluation episode.
 
-    Returns (score, total_steps).
+    Returns (score, total_steps, is_board_cleared).
     """
-    gym = PacmanGym(random_start=True)
+    gym = PacmanGym(random_start=False)
     gym.reset()
 
     q_net.eval()
@@ -99,15 +104,20 @@ def evaluate_episode(max_steps: int = 1000) -> tuple[int, int]:
         if done:
             break
 
-    return (gym.score(), step_num)
+    return (gym.score(), step_num, gym.lives() == 3)
 
 
 def train():
     # Initialize the replay buffer.
     replay_buffer = ReplayBuffer(
         maxlen=wandb.config.replay_buffer_size,
-        policy=EpsilonGreedy(MaxQPolicy(q_net), num_actions, 1.0),
+        policy=EpsilonGreedy(
+            MaxQPolicy(q_net),
+            num_actions,
+            wandb.config.initial_epsilon if args.finetune else 1.0,
+        ),
         num_parallel_envs=wandb.config.num_parallel_envs,
+        random_start_proportion=wandb.config.random_start_proportion,
         device=device,
     )
     replay_buffer.fill()
@@ -204,10 +214,11 @@ def train():
             if iter_num % wandb.config.evaluate_steps == 0:
                 with time_block("Evaluate the current agent"):
                     # Evaluate the current agent.
-                    eval_episode_score, eval_episode_steps = evaluate_episode()
+                    eval_episode_score, eval_episode_steps, cleared_board = evaluate_episode()
                     metrics.update(
                         eval_episode_score=eval_episode_score,
                         eval_episode_steps=eval_episode_steps,
+                        cleared_board=int(cleared_board),
                     )
             wandb.log(metrics)
 
@@ -237,7 +248,7 @@ def train():
 
 @torch.no_grad()
 def visualize_agent():
-    gym = PacmanGym(random_start=True)
+    gym = PacmanGym(random_start=False)
     gym.reset()
 
     q_net.eval()
@@ -248,7 +259,7 @@ def visualize_agent():
     print()
 
     for step_num in itertools.count(1):
-        time.sleep(0.2)
+        time.sleep(0.1)
 
         obs = torch.from_numpy(gym.obs_numpy()).to(device)
         action_values = q_net(obs.unsqueeze(0)).squeeze(0)

@@ -38,6 +38,7 @@ class ReplayBuffer(Generic[P]):
         maxlen: int,
         policy: P,
         num_parallel_envs: int,
+        random_start_proportion: float,
         device: torch.device = torch.device("cpu"),
     ) -> None:
         self._buffer = deque[ReplayItem](maxlen=maxlen)
@@ -45,7 +46,10 @@ class ReplayBuffer(Generic[P]):
         self.device = device
 
         # Initialize the environments.
-        self._envs = [pacbot_rs.PacmanGym(random_start=True) for _ in range(num_parallel_envs)]
+        self._envs = [
+            pacbot_rs.PacmanGym(random_start=i < num_parallel_envs * random_start_proportion)
+            for i in range(num_parallel_envs)
+        ]
         for env in self._envs:
             env.reset()
         self._last_obs = self._make_current_obs()

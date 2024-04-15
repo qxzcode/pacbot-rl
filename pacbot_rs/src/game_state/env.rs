@@ -4,7 +4,7 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 use numpy::{IntoPyArray, PyArray3};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rand::seq::SliceRandom;
+use rand::{seq::SliceRandom, Rng};
 
 use crate::{
     grid::{self, coords_to_node, NODE_COORDS, VALID_ACTIONS},
@@ -107,6 +107,31 @@ impl PacmanGym {
                     ghost.next_pos = ghost.current_pos;
                 }
             }
+
+            // Randomly remove pellets from half the board (left, right, top, bottom) or don't.
+            let wipe_type = rng.gen_range(0..=4);
+            if wipe_type != 0 {
+                for (x, col) in self.game_state.grid.iter_mut().enumerate() {
+                    for (y, cell) in col.iter_mut().enumerate() {
+                        if matches!(*cell, GridValue::o | GridValue::O)
+                            && match wipe_type {
+                                1 => x < 28 / 2,
+                                2 => x >= 28 / 2,
+                                3 => y < 31 / 2,
+                                4 => y >= 31 / 2,
+                                _ => unreachable!(),
+                            }
+                        {
+                            if *cell == GridValue::o {
+                                self.game_state.pellets -= 1;
+                            } else {
+                                self.game_state.power_pellets -= 1;
+                            }
+                            *cell = GridValue::e;
+                        }
+                    }
+                }
+            }
         }
 
         self.last_ghost_pos = [
@@ -171,7 +196,7 @@ impl PacmanGym {
                 reward += -200;
             } else {
                 // Pacman cleared the board! Good Pacman.
-                reward += 500;
+                reward += 3_000;
             }
         }
         self.last_score = self.game_state.score;
@@ -189,6 +214,10 @@ impl PacmanGym {
 
     pub fn is_done(&self) -> bool {
         !self.game_state.play
+    }
+
+    pub fn remaining_pellets(&self) -> u32 {
+        self.game_state.pellets
     }
 
     /// Returns the action mask that is `True` for currently-valid actions and

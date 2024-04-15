@@ -286,6 +286,7 @@ impl GameState {
         }
         self.state = GameStateState::Frightened;
         self.frightened_counter = FRIGHTENED_LENGTH;
+        self.frightened_multiplier = 1;
         self.ghosts_mut().for_each(|mut g| g.become_frightened());
         self.just_swapped_state = true;
     }
@@ -429,7 +430,7 @@ impl GameState {
             let mut ghost = ghost.borrow_mut();
             if ghost.current_pos == self.pacbot.pos && ghost.frightened_counter > 0 {
                 ghost.send_home();
-                self.score += GHOST_SCORE * self.frightened_multiplier;
+                self.score += GHOST_SCORE << (self.frightened_multiplier - 1);
                 self.frightened_multiplier += 1;
             }
         }

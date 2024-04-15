@@ -24,7 +24,7 @@ from utils import lerp
 hyperparam_defaults = {
     "learning_rate": 0.0001,
     "batch_size": 512,
-    "num_iters": 150_000,
+    "num_iters": 2_000_000,
     "replay_buffer_size": 10_000,
     "num_parallel_envs": 32,
     "random_start_proportion": 0.5,
@@ -35,7 +35,7 @@ hyperparam_defaults = {
     "final_epsilon": 0.1 * 0.05,
     "discount_factor": 0.99,
     "reward_scale": 1 / 50,
-    "grad_clip_norm": 0.1,
+    "grad_clip_norm": 10_000,
     "model": "QNetV2",
 }
 

@@ -91,6 +91,13 @@ class ReplayBuffer(Generic[P]):
                 next_obs = torch.from_numpy(env.obs_numpy()).to(self.device)
                 next_action_mask = env.action_mask()
 
+            # # Subsample to focus training on end-game states.
+            # keep_prob = 1.0 if env.remaining_pellets() < 140 else 0.1
+            # if random.random() < keep_prob:
+            #     print(f"{env.remaining_pellets()=}")
+            #     # Add the transition to the replay buffer.
+            #     item = ReplayItem(last_obs, action, reward, next_obs, next_action_mask)
+            #     self._buffer.append(item)
             # Add the transition to the replay buffer.
             self._buffer.append(ReplayItem(last_obs, action, reward, next_obs, next_action_mask))
 

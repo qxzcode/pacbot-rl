@@ -12,8 +12,7 @@ use crate::{
     grid::{GRID, GRID_PELLET_COUNT, GRID_POWER_PELLET_COUNT},
     pacbot::PacBot,
     variables::{
-        GridValue, CHERRY_POS, CHERRY_SCORE, FRIGHTENED_LENGTH, GAME_FREQUENCY, GHOST_SCORE,
-        PELLET_SCORE, POWER_PELLET_SCORE, STARTING_LIVES, STATE_SWAP_TIMES, TICKS_PER_UPDATE,
+        GridValue, CHASE_DURATION, CHERRY_POS, CHERRY_SCORE, FRIGHTENED_LENGTH, GAME_FREQUENCY, GHOST_SCORE, PELLET_SCORE, POWER_PELLET_SCORE, SCATTER_DURATION, STARTING_LIVES, TICKS_PER_UPDATE
     },
 };
 
@@ -176,7 +175,7 @@ impl GameState {
             score: 0,
             play: false,
             start_counter: 0,
-            state_counter: 0,
+            state_counter: SCATTER_DURATION,
             update_ticks: 0,
             lives: STARTING_LIVES,
             ticks_since_spawn: 0,
@@ -225,7 +224,7 @@ impl GameState {
                     self.frightened_counter -= 1;
                 } else {
                     self.swap_state_if_necessary();
-                    self.state_counter += 1;
+                    self.state_counter -= 1;
                 }
                 self.start_counter += 1;
                 // self.print_ghost_pos();
@@ -260,7 +259,7 @@ impl GameState {
         self.score = 0;
         self.play = false;
         self.start_counter = 0;
-        self.state_counter = 0;
+        self.state_counter = SCATTER_DURATION;
         self.update_ticks = 0;
         self.lives = STARTING_LIVES;
         self.update_score();
@@ -401,7 +400,7 @@ impl GameState {
         if self.lives > 1 {
             self.respawn_agents();
             self.start_counter = 0;
-            self.state_counter = 0;
+            self.state_counter = SCATTER_DURATION;
             self.lives -= 1;
             self.old_state = GameStateState::Chase;
             self.state = GameStateState::Scatter;
@@ -448,11 +447,13 @@ impl GameState {
 
     /// Changes the state of the game
     fn swap_state_if_necessary(&mut self) {
-        if STATE_SWAP_TIMES.contains(&self.state_counter) {
+        if self.state_counter == 0 {
             if self.state == GameStateState::Chase {
                 self.state = GameStateState::Scatter;
+                self.state_counter = SCATTER_DURATION;
             } else {
                 self.state = GameStateState::Chase;
+                self.state_counter = CHASE_DURATION;
             }
             self.just_swapped_state = true;
         } else {

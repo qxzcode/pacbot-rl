@@ -259,7 +259,7 @@ def visualize_agent():
     print()
 
     for step_num in itertools.count(1):
-        input("press enter for next sequence...")
+        time.sleep(0.1)
 
         obs = torch.from_numpy(gym.obs_numpy()).to(device)
         action_values = q_net(obs.unsqueeze(0)).squeeze(0)

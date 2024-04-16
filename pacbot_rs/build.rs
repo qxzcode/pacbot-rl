@@ -143,10 +143,10 @@ fn main() -> io::Result<()> {
     let valid_actions = node_coords.map(|(x, y)| {
         [
             true,
-            node_coords_set.contains(&(x, y + 1)),
-            node_coords_set.contains(&(x, y - 1)),
-            node_coords_set.contains(&(x - 1, y)),
             node_coords_set.contains(&(x + 1, y)),
+            node_coords_set.contains(&(x - 1, y)),
+            node_coords_set.contains(&(x, y - 1)),
+            node_coords_set.contains(&(x, y + 1)),
         ]
     });
     fs::write(out_dir.join("VALID_ACTIONS.rs"), format!("{valid_actions:?}"))?;

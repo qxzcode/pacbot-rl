@@ -311,7 +311,7 @@ impl PacmanGym {
             Action::Stay => (old_pos.row, old_pos.col),
             Action::Right => (old_pos.row, min(old_pos.col + 1, 31 - 1)),
             Action::Up => (old_pos.row, old_pos.col.saturating_sub(1)),
-            Action::Left => (old_pos.row.saturating_sub(1), old_pos.col),
+            Action::Left => (old_pos.row, old_pos.col.saturating_sub(1)),
             Action::Down => (min(old_pos.row + 1, 28 - 1), old_pos.col),
         };
         if !self.game_engine.get_state().wall_at(new_pos) {

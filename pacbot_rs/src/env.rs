@@ -381,6 +381,9 @@ impl PacmanGym {
 
         for (i, g) in self.game_engine.get_state().ghosts.iter().enumerate() {
             let pos = g.loc;
+            if pos.row == 32 && pos.col == 32 {
+                continue;
+            }
             ghost[(i, pos.row as usize, pos.col as usize)] = 1.0;
             if g.is_frightened() {
                 state[(2, pos.row as usize, pos.col as usize)] =
@@ -393,6 +396,9 @@ impl PacmanGym {
         }
 
         for (i, pos) in self.last_ghost_pos.iter().enumerate() {
+            if pos.row == 32 && pos.col == 32 {
+                continue;
+            }
             last_ghost[(i, pos.row as usize, pos.col as usize)] = 1.0;
         }
 

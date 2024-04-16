@@ -381,6 +381,9 @@ impl PacmanGym {
                 / COMBO_MULTIPLIER as f32;
         }
         for g in &self.game_engine.get_state().ghosts {
+            if g.loc.row == 32 && g.loc.col == 32 {
+                continue;
+            }
             if g.is_frightened() {
                 reward[(g.loc.col as usize, g.loc.row as usize)] += 1.0;
             }

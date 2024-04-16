@@ -181,9 +181,7 @@ impl PacmanGym {
         let tick_mult =
             if self.last_action == action || self.last_action == Action::Stay { 1 } else { 2 };
         for _ in 0..TICKS_PER_STEP * tick_mult {
-            // force step ignores the game engine's built-in 12-step interval system and moves all
-            // ghosts immediately
-            self.game_engine.force_step();
+            self.game_engine.step();
             if self.is_done() {
                 break;
             }
@@ -371,27 +369,27 @@ impl PacmanGym {
         }
         for g in &self.game_engine.get_state().ghosts {
             if g.is_frightened() {
-                reward[(g.loc.row as usize, g.loc.col as usize)] += 1.0;
+                reward[(g.loc.col as usize, g.loc.row as usize)] += 1.0;
             }
         }
 
         let pac_pos = self.game_engine.get_state().pacman_loc;
-        pacman[(0, self.last_pos.row as usize, self.last_pos.col as usize)] = 1.0;
-        pacman[(1, pac_pos.row as usize, pac_pos.col as usize)] = 1.0;
+        pacman[(0, self.last_pos.col as usize, self.last_pos.row as usize)] = 1.0;
+        pacman[(1, pac_pos.col as usize, pac_pos.row as usize)] = 1.0;
 
         for (i, g) in self.game_engine.get_state().ghosts.iter().enumerate() {
             let pos = g.loc;
             if pos.row == 32 && pos.col == 32 {
                 continue;
             }
-            ghost[(i, pos.row as usize, pos.col as usize)] = 1.0;
+            ghost[(i, pos.col as usize, pos.row as usize)] = 1.0;
             if g.is_frightened() {
-                state[(2, pos.row as usize, pos.col as usize)] =
+                state[(2, pos.col as usize, pos.row as usize)] =
                     g.fright_steps as f32 / GHOST_FRIGHT_STEPS as f32;
             } else {
                 let state_index =
                     if self.game_engine.get_state().mode == GameMode::CHASE { 1 } else { 0 };
-                state[(state_index, pos.row as usize, pos.col as usize)] = 1.0;
+                state[(state_index, pos.col as usize, pos.row as usize)] = 1.0;
             }
         }
 
@@ -399,7 +397,7 @@ impl PacmanGym {
             if pos.row == 32 && pos.col == 32 {
                 continue;
             }
-            last_ghost[(i, pos.row as usize, pos.col as usize)] = 1.0;
+            last_ghost[(i, pos.col as usize, pos.row as usize)] = 1.0;
         }
 
         obs_array

@@ -84,20 +84,14 @@ impl PacmanGym {
             game_engine.get_state().ghosts[2].loc,
             game_engine.get_state().ghosts[3].loc,
         ];
-        let mut env = Self {
+        Self {
             random_start,
             last_score: 0,
             last_action: Action::Stay,
             last_ghost_pos,
             last_pos: game_engine.get_state().pacman_loc,
             game_engine,
-        };
-        if random_start && RANDOMIZE_GHOSTS {
-            for ghost in &mut env.game_engine.state_mut().ghosts {
-                ghost.trapped_steps = 0;
-            }
         }
-        env
     }
 
     pub fn reset(&mut self) {
@@ -117,8 +111,26 @@ impl PacmanGym {
                 for ghost in &mut game_state.ghosts {
                     ghost.trapped_steps = 0;
                     let ghost_random_pos = random_pos();
-                    ghost.loc =
-                        LocationState { row: ghost_random_pos.0, col: ghost_random_pos.1, dir: 0 };
+                    // find a valid next space
+                    let index = coords_to_node(ghost_random_pos).expect("invalid random pos!");
+                    let valid_moves = VALID_ACTIONS[index]
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, b)| **b)
+                        .skip(1)
+                        .next()
+                        .unwrap();
+                    ghost.loc = LocationState {
+                        row: ghost_random_pos.0,
+                        col: ghost_random_pos.1,
+                        dir: match valid_moves.0 {
+                            1 => DOWN,
+                            2 => UP,
+                            3 => RIGHT,
+                            4 => LEFT,
+                            _ => unreachable!(),
+                        },
+                    };
                     ghost.next_loc = ghost.loc;
                 }
             }

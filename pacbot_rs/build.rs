@@ -1,5 +1,6 @@
 //! Build script that precomputes various things from the game grid.
 
+use pacbot_rs_2::game_state::GameState;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
@@ -11,28 +12,28 @@ use std::io::BufWriter;
 use std::io::Write;
 use std::path::Path;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[allow(non_camel_case_types)]
-pub enum GridValue {
-    /// Wall
-    I = 1,
-    /// Normal pellet
-    o = 2,
-    /// Empty space
-    e = 3,
-    /// Power pellet
-    O = 4,
-    /// Ghost chambers
-    n = 5,
-    /// Cherry position
-    c = 6,
-}
-use GridValue::*;
-
-pub const GRID: [[GridValue; 31]; 28] = include!("src/grid_data.txt");
-
-fn output_count<P: AsRef<Path>>(cell_type: GridValue, out_path: P) -> io::Result<()> {
-    let count = GRID.iter().flatten().filter(|v| **v == cell_type).count();
+fn count_pellets<P: AsRef<Path>>(super_pellets: bool, out_path: P) -> io::Result<()> {
+    let grid = GameState::new();
+    let mut count = 0;
+    for row in 0..31 {
+        for col in 0..28 {
+            if !grid.wall_at((row, col)) {
+                // eprint!("[{row}, {col}], ")
+            }
+            if grid.pellet_at((row, col)) {
+                if ((row == 3) || (row == 23)) && ((col == 1) || (col == 26)) {
+                    if super_pellets {
+                        count += 1;
+                    }
+                } else {
+                    if !super_pellets {
+                        count += 1;
+                    }
+                }
+            }
+        }
+    }
+    // eprintln!();
     fs::write(out_path, count.to_string())
 }
 
@@ -80,8 +81,8 @@ fn breadth_first_search(start: (usize, usize), mut callback: impl FnMut((usize, 
     callback(start, 0);
 
     fn is_walkable(pos: (usize, usize)) -> bool {
-        let tile = GRID[pos.0][pos.1];
-        tile != GridValue::I && tile != GridValue::n
+        let grid = GameState::new();
+        !grid.wall_at((pos.0 as i8, pos.1 as i8))
     }
 
     let mut queue = VecDeque::from([(start, 0)]);
@@ -99,11 +100,8 @@ fn breadth_first_search(start: (usize, usize), mut callback: impl FnMut((usize, 
 }
 
 fn compute_distance_matrix(node_coords: &[(usize, usize)]) -> Vec<Vec<usize>> {
-    let coords_to_node: HashMap<(usize, usize), usize> = node_coords
-        .iter()
-        .enumerate()
-        .map(|(i, &pos)| (pos, i))
-        .collect();
+    let coords_to_node: HashMap<(usize, usize), usize> =
+        node_coords.iter().enumerate().map(|(i, &pos)| (pos, i)).collect();
     let mut dists = vec![vec![0; node_coords.len()]; node_coords.len()];
     for (i, &start) in node_coords.iter().enumerate() {
         breadth_first_search(start, |pos, dist| dists[i][coords_to_node[&pos]] = dist);
@@ -117,8 +115,8 @@ fn main() -> io::Result<()> {
 
     // pellet counts
     println!("cargo:rerun-if-changed=src/grid_data.txt");
-    output_count(o, out_dir.join("GRID_PELLET_COUNT.txt"))?;
-    output_count(O, out_dir.join("GRID_POWER_PELLET_COUNT.txt"))?;
+    count_pellets(false, out_dir.join("GRID_PELLET_COUNT.txt"))?;
+    count_pellets(true, out_dir.join("GRID_POWER_PELLET_COUNT.txt"))?;
 
     // node coordinates
     println!("cargo:rerun-if-changed=../computed_data/node_coords.json");
@@ -132,10 +130,7 @@ fn main() -> io::Result<()> {
         let key = ((coords.0 as u128) << 64) | (coords.1 as u128);
         coords_to_node.entry(key, &i.to_string());
     }
-    fs::write(
-        out_dir.join("COORDS_TO_NODE.rs"),
-        coords_to_node.build().to_string(),
-    )?;
+    fs::write(out_dir.join("COORDS_TO_NODE.rs"), coords_to_node.build().to_string())?;
 
     // node embeddings
     output_array::<f64, _>(
@@ -154,10 +149,7 @@ fn main() -> io::Result<()> {
             node_coords_set.contains(&(x + 1, y)),
         ]
     });
-    fs::write(
-        out_dir.join("VALID_ACTIONS.rs"),
-        format!("{valid_actions:?}"),
-    )?;
+    fs::write(out_dir.join("VALID_ACTIONS.rs"), format!("{valid_actions:?}"))?;
 
     // action distributions
     output_array::<f32, _>(
@@ -167,20 +159,11 @@ fn main() -> io::Result<()> {
 
     // distance matrix
     let distance_matrix = compute_distance_matrix(&node_coords);
-    fs::write(
-        out_dir.join("DISTANCE_MATRIX.rs"),
-        format!("{distance_matrix:?}"),
-    )?;
+    fs::write(out_dir.join("DISTANCE_MATRIX.rs"), format!("{distance_matrix:?}"))?;
 
     // super pellet locations
-    let super_pellet_locs = node_coords
-        .iter()
-        .filter(|(x, y)| GRID[*x][*y] == GridValue::O)
-        .collect::<Vec<_>>();
-    fs::write(
-        out_dir.join("SUPER_PELLET_LOCS.rs"),
-        format!("{super_pellet_locs:?}"),
-    )?;
+    let super_pellet_locs = vec![(3, 1), (3, 26), (23, 1), (23, 26)];
+    fs::write(out_dir.join("SUPER_PELLET_LOCS.rs"), format!("{super_pellet_locs:?}"))?;
 
     Ok(())
 }

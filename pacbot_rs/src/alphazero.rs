@@ -6,7 +6,7 @@ use numpy::PyArray3;
 use pyo3::prelude::*;
 
 use crate::{
-    game_state::env::PacmanGym,
+    env::PacmanGym,
     mcts::{eval_obs_batch, LeafEvaluation, MCTSContext},
 };
 

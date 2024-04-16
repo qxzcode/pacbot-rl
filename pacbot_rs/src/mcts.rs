@@ -6,7 +6,7 @@ use ordered_float::NotNan;
 use pyo3::prelude::*;
 use rand_distr::{Dirichlet, Distribution};
 
-use crate::game_state::env::{Action, PacmanGym};
+use crate::env::{Action, PacmanGym};
 
 /// The type for returns (cumulative rewards).
 type Return = f32;

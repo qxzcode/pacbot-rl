@@ -76,7 +76,8 @@ fn modify_bit_u32(num: &mut u32, bit_idx: usize, bit_val: bool) {
 impl PacmanGym {
     #[new]
     pub fn new(random_start: bool) -> Self {
-        let game_engine = GameEngine::new();
+        let mut game_engine = GameEngine::new();
+        game_engine.unpause();
         let last_ghost_pos = [
             game_engine.get_state().ghosts[0].loc,
             game_engine.get_state().ghosts[1].loc,

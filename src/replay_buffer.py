@@ -47,7 +47,7 @@ class ReplayBuffer(Generic[P]):
 
         # Initialize the environments.
         self._envs = [
-            pacbot_rs.PacmanGym(random_start=i < num_parallel_envs * random_start_proportion)
+            pacbot_rs.PacmanGym(random_start=i < num_parallel_envs * random_start_proportion, random_ticks=True)
             for i in range(num_parallel_envs)
         ]
         for env in self._envs:

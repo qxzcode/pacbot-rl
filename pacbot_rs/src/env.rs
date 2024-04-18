@@ -358,8 +358,8 @@ impl PacmanGym {
         let new_pos = match action {
             Action::Stay => (old_pos.row, old_pos.col),
             Action::Right => (old_pos.row, old_pos.col + 1),
-            Action::Up => (old_pos.row, old_pos.col.saturating_sub(1)),
             Action::Left => (old_pos.row, old_pos.col.saturating_sub(1)),
+            Action::Up => (old_pos.row.saturating_sub(1), old_pos.col),
             Action::Down => (old_pos.row + 1, old_pos.col),
         };
         if !self.game_engine.get_state().wall_at(new_pos) {

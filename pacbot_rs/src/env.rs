@@ -7,7 +7,7 @@ use pacbot_rs_2::game_engine::GameEngine;
 use pacbot_rs_2::game_modes::GameMode;
 use pacbot_rs_2::location::{LocationState, DOWN, LEFT, RIGHT, UP};
 use pacbot_rs_2::variables::{
-    COMBO_MULTIPLIER, FRUIT_POINTS, GHOST_FRIGHT_STEPS, PELLET_POINTS, SUPER_PELLET_POINTS,
+    self, COMBO_MULTIPLIER, FRUIT_POINTS, GHOST_FRIGHT_STEPS, PELLET_POINTS, SUPER_PELLET_POINTS
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -69,8 +69,10 @@ pub struct PacmanGym {
     pub random_start: bool,
     last_score: u16,
     last_action: Action,
-    last_ghost_pos: [LocationState; 4],
-    last_pos: LocationState,
+    /// Position of ghosts on the last frame, in obs coords.
+    last_ghost_pos: [Option<(usize, usize)>; 4],
+    /// Position of Pacman on the last frame, in obs coords.
+    last_pos: Option<(usize, usize)>,
     ticks_per_step: u32,
     random_ticks: bool,
 }
@@ -84,6 +86,16 @@ fn modify_bit_u32(num: &mut u32, bit_idx: usize, bit_val: bool) {
     }
 }
 
+/// Converts game location into our coords.
+fn loc_to_pos(loc: LocationState) -> Option<(usize, usize)> {
+    if loc.row != 32 && loc.col != 32 {
+        Some((loc.col as usize, (31 - loc.row - 1) as usize))
+    }
+    else {
+        None
+    }
+}
+
 #[pymethods]
 impl PacmanGym {
     #[new]
@@ -91,17 +103,17 @@ impl PacmanGym {
         let mut game_engine = GameEngine::new();
         game_engine.unpause();
         let last_ghost_pos = [
-            game_engine.get_state().ghosts[0].loc,
-            game_engine.get_state().ghosts[1].loc,
-            game_engine.get_state().ghosts[2].loc,
-            game_engine.get_state().ghosts[3].loc,
+            loc_to_pos(game_engine.get_state().ghosts[0].loc),
+            loc_to_pos(game_engine.get_state().ghosts[1].loc),
+            loc_to_pos(game_engine.get_state().ghosts[2].loc),
+            loc_to_pos(game_engine.get_state().ghosts[3].loc),
         ];
         Self {
             random_start,
             last_score: 0,
             last_action: Action::Stay,
             last_ghost_pos,
-            last_pos: game_engine.get_state().pacman_loc,
+            last_pos: loc_to_pos(game_engine.get_state().pacman_loc),
             game_engine,
             ticks_per_step: NORMAL_TICKS_PER_STEP,
             random_ticks,
@@ -180,13 +192,13 @@ impl PacmanGym {
         }
 
         self.last_ghost_pos = [
-            game_state.ghosts[0].loc,
-            game_state.ghosts[1].loc,
-            game_state.ghosts[2].loc,
-            game_state.ghosts[3].loc,
+            loc_to_pos(game_state.ghosts[0].loc),
+            loc_to_pos(game_state.ghosts[1].loc),
+            loc_to_pos(game_state.ghosts[2].loc),
+            loc_to_pos(game_state.ghosts[3].loc),
         ];
         self.last_action = Action::Stay;
-        self.last_pos = game_state.pacman_loc;
+        self.last_pos = None;
 
         self.game_engine.unpause();
     }
@@ -194,17 +206,17 @@ impl PacmanGym {
     /// Performs an action and steps the environment.
     /// Returns (reward, done).
     pub fn step(&mut self, action: Action) -> (i32, bool) {
-        // update Pacman pos
-        self.last_pos = self.game_engine.get_state().pacman_loc;
+        // Update Pacman pos
+        self.last_pos = loc_to_pos(self.game_engine.get_state().pacman_loc);
         self.move_one_cell(action);
 
         let game_state = self.game_engine.state_mut();
 
         let entity_positions = [
-            game_state.ghosts[0].loc,
-            game_state.ghosts[1].loc,
-            game_state.ghosts[2].loc,
-            game_state.ghosts[3].loc,
+            loc_to_pos(game_state.ghosts[0].loc),
+            loc_to_pos(game_state.ghosts[1].loc),
+            loc_to_pos(game_state.ghosts[2].loc),
+            loc_to_pos(game_state.ghosts[3].loc),
         ];
 
         // step through environment multiple times
@@ -225,10 +237,10 @@ impl PacmanGym {
 
         // If the ghost positions change, update the last ghost positions
         let new_entity_positions = [
-            game_state.ghosts[0].loc,
-            game_state.ghosts[1].loc,
-            game_state.ghosts[2].loc,
-            game_state.ghosts[3].loc,
+            loc_to_pos(game_state.ghosts[0].loc),
+            loc_to_pos(game_state.ghosts[1].loc),
+            loc_to_pos(game_state.ghosts[2].loc),
+            loc_to_pos(game_state.ghosts[3].loc),
         ];
         let pos_changed =
             entity_positions.iter().zip(&new_entity_positions).any(|(e1, e2)| e1 != e2);
@@ -274,10 +286,14 @@ impl PacmanGym {
     /// Returns the action mask that is `True` for currently-valid actions and
     /// `False` for currently-invalid actions.
     pub fn action_mask(&self) -> [bool; 5] {
-        let pacbot_pos = self.game_engine.get_state().pacman_loc;
-        let pacbot_node = coords_to_node((pacbot_pos.row, pacbot_pos.col))
-            .expect("PacBot is in an invalid location");
-        VALID_ACTIONS[pacbot_node]
+        let p = self.game_engine.get_state().pacman_loc;
+            [
+                true,
+                !self.game_engine.get_state().wall_at((p.row + 1, p.col)),
+                !self.game_engine.get_state().wall_at((p.row - 1, p.col)),
+                !self.game_engine.get_state().wall_at((p.row, p.col - 1)),
+                !self.game_engine.get_state().wall_at((p.row, p.col + 1)),
+            ]
     }
 
     /// Returns an observation array/tensor constructed from the game state.
@@ -316,7 +332,7 @@ impl PacmanGym {
                         ch
                     } else if game_state.wall_at((row, col)) {
                         ('#', "90")
-                    } else if (row, col) == (game_state.fruit_loc.row, game_state.fruit_loc.col) {
+                    } else if (row, col) == (game_state.fruit_loc.row, game_state.fruit_loc.col) && game_state.fruit_exists() {
                         ('c', "31")
                     } else if game_state.pellet_at((row, col)) {
                         if ((row == 3) || (row == 23)) && ((col == 1) || (col == 26)) {
@@ -341,10 +357,10 @@ impl PacmanGym {
         let old_pos = self.game_engine.get_state().pacman_loc;
         let new_pos = match action {
             Action::Stay => (old_pos.row, old_pos.col),
-            Action::Right => (old_pos.row, min(old_pos.col + 1, 31 - 1)),
+            Action::Right => (old_pos.row, old_pos.col + 1),
             Action::Up => (old_pos.row, old_pos.col.saturating_sub(1)),
             Action::Left => (old_pos.row, old_pos.col.saturating_sub(1)),
-            Action::Down => (min(old_pos.row + 1, 28 - 1), old_pos.col),
+            Action::Down => (old_pos.row + 1, old_pos.col),
         };
         if !self.game_engine.get_state().wall_at(new_pos) {
             let old_pos = self.game_engine.get_state().pacman_loc;
@@ -366,6 +382,7 @@ impl PacmanGym {
 
     /// Returns an observation array/tensor constructed from the game state.
     pub fn obs(&self) -> Array3<f32> {
+        let game_state = self.game_engine.get_state();
         let mut obs_array = Array::zeros((16, 28, 31));
         let (mut wall, mut reward, mut pacman, mut ghost, mut last_ghost, mut state) = obs_array
             .multi_slice_mut((
@@ -377,70 +394,68 @@ impl PacmanGym {
                 s![12..15, .., ..],
             ));
 
-        let game_state = self.game_engine.get_state();
-        for (grid_value, wall_value, reward_value) in izip!(
-            (0..31).map(|row| (0..28).map(move |col| (row, col))).flatten(),
-            wall.iter_mut(),
-            reward.iter_mut()
-        ) {
-            *wall_value = game_state.wall_at(grid_value) as u8 as f32;
-
-            *reward_value = if grid_value == (game_state.fruit_loc.row, game_state.fruit_loc.col) {
-                FRUIT_POINTS
-            } else if game_state.pellet_at(grid_value) {
-                if ((grid_value.0 == 3) || (grid_value.0 == 23))
-                    && ((grid_value.1 == 1) || (grid_value.1 == 26))
+        for row in 0..31 {
+            for col in 0..28 {
+                let obs_row = 31 - row - 1;
+                wall[(col, obs_row)] = game_state.wall_at((row as i8, col as i8)) as u8 as f32;
+                reward[(col, obs_row)] = if game_state.pellet_at((row as i8, col as i8)) {
+                    if ((row == 3) || (row == 23)) && ((col == 1) || (col == 26)) {
+                        variables::SUPER_PELLET_POINTS
+                    } else {
+                        variables::PELLET_POINTS
+                    }
+                } else if game_state.fruit_exists()
+                    && col == game_state.fruit_loc.col as usize
+                    && row == game_state.fruit_loc.row as usize
                 {
-                    SUPER_PELLET_POINTS
+                    variables::FRUIT_POINTS
                 } else {
-                    PELLET_POINTS
+                    0
+                } as f32
+                    / variables::COMBO_MULTIPLIER as f32;
+            }
+        }
+
+        // Compute new pacman and ghost positions
+        let new_pos = loc_to_pos(game_state.pacman_loc);
+        let new_ghost_pos: Vec<_> = game_state.ghosts.iter().map(|g| loc_to_pos(g.loc)).collect();
+
+        if let Some(last_pos) = self.last_pos {
+            pacman[(0, last_pos.0, last_pos.1)] = 1.0;
+        }
+        if let Some(new_pos) = new_pos {
+            pacman[(1, new_pos.0, new_pos.1)] = 1.0;
+        }
+
+        for (i, g) in game_state.ghosts.iter()
+            .enumerate()
+        {
+            if let Some((col, row)) = new_ghost_pos[i] {
+                ghost[(i, col, row)] = 1.0;
+                if g.is_frightened() {
+                    state[(2, col, row)] = g.fright_steps as f32 / GHOST_FRIGHT_STEPS as f32;
+                    reward[(col, row)] += 2_i32.pow(game_state.ghost_combo as u32) as f32;
+                } else {
+                    let state_index = if game_state.mode == GameMode::CHASE {
+                        1
+                    } else {
+                        0
+                    };
+                    state[(state_index, col, row)] =
+                        game_state.get_mode_steps() as f32 / GameMode::CHASE.duration() as f32;
                 }
-            } else {
-                0
-            } as f32
-                / COMBO_MULTIPLIER as f32;
-        }
-        for g in &self.game_engine.get_state().ghosts {
-            if g.loc.row == 32 && g.loc.col == 32 {
-                continue;
-            }
-            if g.is_frightened() {
-                reward[(g.loc.col as usize, g.loc.row as usize)] += 1.0;
-            }
-        }
-
-        let pac_pos = self.game_engine.get_state().pacman_loc;
-        pacman[(0, self.last_pos.col as usize, self.last_pos.row as usize)] = 1.0;
-        pacman[(1, pac_pos.col as usize, pac_pos.row as usize)] = 1.0;
-
-        for (i, g) in self.game_engine.get_state().ghosts.iter().enumerate() {
-            let pos = g.loc;
-            if pos.row == 32 && pos.col == 32 {
-                continue;
-            }
-            ghost[(i, pos.col as usize, pos.row as usize)] = 1.0;
-            if g.is_frightened() {
-                state[(2, pos.col as usize, pos.row as usize)] =
-                    g.fright_steps as f32 / GHOST_FRIGHT_STEPS as f32;
-            } else {
-                let state_index =
-                    if self.game_engine.get_state().mode == GameMode::CHASE { 1 } else { 0 };
-                state[(state_index, pos.col as usize, pos.row as usize)] =
-                    self.game_engine.get_state().mode_steps as f32
-                        / GameMode::CHASE.duration() as f32;
             }
         }
 
         for (i, pos) in self.last_ghost_pos.iter().enumerate() {
-            if pos.row == 32 && pos.col == 32 {
-                continue;
+            if let Some(pos) = pos {
+                last_ghost[(i, pos.0, pos.1)] = 1.0;
             }
-            last_ghost[(i, pos.col as usize, pos.row as usize)] = 1.0;
         }
 
         obs_array
             .slice_mut(s![15, .., ..])
-            .fill(self.ticks_per_step as f32 / TICKS_PER_UPDATE as f32);
+            .fill(self.ticks_per_step as f32 / game_state.get_update_period() as f32);
 
         obs_array
     }

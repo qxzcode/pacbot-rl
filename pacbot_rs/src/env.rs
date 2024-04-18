@@ -316,7 +316,9 @@ impl PacmanGym {
                         ch
                     } else if game_state.wall_at((row, col)) {
                         ('#', "90")
-                    } else if (row, col) == (game_state.fruit_loc.row, game_state.fruit_loc.col) {
+                    } else if (row, col) == (game_state.fruit_loc.row, game_state.fruit_loc.col)
+                        && game_state.fruit_steps > 0
+                    {
                         ('c', "31")
                     } else if game_state.pellet_at((row, col)) {
                         if ((row == 3) || (row == 23)) && ((col == 1) || (col == 26)) {

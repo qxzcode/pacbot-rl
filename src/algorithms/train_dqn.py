@@ -73,7 +73,7 @@ wandb.init(
 
 
 # Initialize the Q network.
-obs_shape = PacmanGym(random_start=True).obs_numpy().shape
+obs_shape = PacmanGym(random_start=True, random_ticks=True).obs_numpy().shape
 num_actions = 5
 model_class = getattr(models, wandb.config.model)
 q_net = model_class(obs_shape, num_actions).to(device)
@@ -90,7 +90,7 @@ def evaluate_episode(max_steps: int = 1000) -> tuple[int, int, bool]:
 
     Returns (score, total_steps, is_board_cleared).
     """
-    gym = PacmanGym(random_start=False)
+    gym = PacmanGym(random_start=False, random_ticks=False)
     gym.reset()
 
     q_net.eval()
@@ -248,7 +248,7 @@ def train():
 
 @torch.no_grad()
 def visualize_agent():
-    gym = PacmanGym(random_start=False)
+    gym = PacmanGym(random_start=False, random_ticks=False)
     gym.reset()
 
     q_net.eval()

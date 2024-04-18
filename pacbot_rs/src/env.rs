@@ -13,8 +13,6 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rand::{seq::SliceRandom, Rng};
 
-/// How many ticks the game should move every step. Ghosts move every 12 ticks.
-const TICKS_PER_STEP: u32 = 8;
 pub const TICKS_PER_UPDATE: u32 = 12;
 /// How many ticks the game should move every step normally. Ghosts move every 12 ticks.
 const NORMAL_TICKS_PER_STEP: u32 = 8;

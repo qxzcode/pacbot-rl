@@ -15,9 +15,21 @@ use rand::{seq::SliceRandom, Rng};
 
 /// How many ticks the game should move every step. Ghosts move every 12 ticks.
 const TICKS_PER_STEP: u32 = 8;
+pub const TICKS_PER_UPDATE: u32 = 12;
+/// How many ticks the game should move every step normally. Ghosts move every 12 ticks.
+const NORMAL_TICKS_PER_STEP: u32 = 8;
+
+/// Minimum number of ticks per step.
+const MIN_TICKS_PER_STEP: u32 = 4;
+
+/// Maximum number of ticks per step.
+const MAX_TICKS_PER_STEP: u32 = 14;
 
 /// Whether to randomize the ghosts' positions when `random_start = true`.
 const RANDOMIZE_GHOSTS: bool = true;
+
+/// Penalty for turning.
+const TURN_PENALTY: i32 = -10;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, TryFromPrimitive, IntoPrimitive)]
 #[repr(u8)]
@@ -61,6 +73,8 @@ pub struct PacmanGym {
     last_action: Action,
     last_ghost_pos: [LocationState; 4],
     last_pos: LocationState,
+    ticks_per_step: u32,
+    random_ticks: bool,
 }
 
 fn modify_bit_u32(num: &mut u32, bit_idx: usize, bit_val: bool) {
@@ -75,7 +89,7 @@ fn modify_bit_u32(num: &mut u32, bit_idx: usize, bit_val: bool) {
 #[pymethods]
 impl PacmanGym {
     #[new]
-    pub fn new(random_start: bool) -> Self {
+    pub fn new(random_start: bool, random_ticks: bool) -> Self {
         let mut game_engine = GameEngine::new();
         game_engine.unpause();
         let last_ghost_pos = [
@@ -91,6 +105,8 @@ impl PacmanGym {
             last_ghost_pos,
             last_pos: game_engine.get_state().pacman_loc,
             game_engine,
+            ticks_per_step: NORMAL_TICKS_PER_STEP,
+            random_ticks,
         }
     }
 
@@ -98,10 +114,14 @@ impl PacmanGym {
         self.last_score = 0;
         self.game_engine = GameEngine::new();
 
+        let rng = &mut rand::thread_rng();
+        if self.random_ticks {
+            self.ticks_per_step = rng.gen_range(MIN_TICKS_PER_STEP..MAX_TICKS_PER_STEP);
+        }
+
         let game_state = self.game_engine.state_mut();
 
         if self.random_start {
-            let rng = &mut rand::thread_rng();
             let mut random_pos = || *NODE_COORDS.choose(rng).unwrap();
 
             let pac_random_pos = random_pos();
@@ -190,10 +210,12 @@ impl PacmanGym {
         ];
 
         // step through environment multiple times
-        // If changing directions, double the number of ticks
-        let tick_mult =
-            if self.last_action == action || self.last_action == Action::Stay { 1 } else { 2 };
-        for _ in 0..TICKS_PER_STEP * tick_mult {
+        let turn_penalty = if self.last_action == action || self.last_action == Action::Stay {
+            0
+        } else {
+            TURN_PENALTY
+        };
+        for _ in 0..self.ticks_per_step {
             self.game_engine.step();
             if self.is_done() {
                 break;
@@ -220,7 +242,7 @@ impl PacmanGym {
 
         // The reward is raw difference in game score, minus a penalty for dying or
         // plus a bonus for clearing the board.
-        let mut reward = game_state.curr_score as i32 - self.last_score as i32;
+        let mut reward = (game_state.curr_score as i32 - self.last_score as i32) + turn_penalty;
         if done {
             if game_state.curr_lives < 3 {
                 // Pacman died.
@@ -346,7 +368,7 @@ impl PacmanGym {
 
     /// Returns an observation array/tensor constructed from the game state.
     pub fn obs(&self) -> Array3<f32> {
-        let mut obs_array = Array::zeros((15, 28, 31));
+        let mut obs_array = Array::zeros((16, 28, 31));
         let (mut wall, mut reward, mut pacman, mut ghost, mut last_ghost, mut state) = obs_array
             .multi_slice_mut((
                 s![0, .., ..],
@@ -405,7 +427,9 @@ impl PacmanGym {
             } else {
                 let state_index =
                     if self.game_engine.get_state().mode == GameMode::CHASE { 1 } else { 0 };
-                state[(state_index, pos.col as usize, pos.row as usize)] = 1.0;
+                state[(state_index, pos.col as usize, pos.row as usize)] =
+                    self.game_engine.get_state().mode_steps as f32
+                        / GameMode::CHASE.duration() as f32;
             }
         }
 
@@ -415,6 +439,10 @@ impl PacmanGym {
             }
             last_ghost[(i, pos.col as usize, pos.row as usize)] = 1.0;
         }
+
+        obs_array
+            .slice_mut(s![15, .., ..])
+            .fill(self.ticks_per_step as f32 / TICKS_PER_UPDATE as f32);
 
         obs_array
     }

@@ -104,7 +104,7 @@ def evaluate_episode(max_steps: int = 1000) -> tuple[int, int, bool]:
         if done:
             break
 
-    return (gym.score(), step_num, gym.lives() == 3)
+    return (gym.score(), step_num, done and gym.lives() == 3)
 
 
 def train():

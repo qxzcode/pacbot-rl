@@ -29,6 +29,8 @@ const RANDOMIZE_GHOSTS: bool = true;
 /// Penalty for turning.
 const TURN_PENALTY: i32 = -10;
 
+const LAST_REWARD: u16 = 3_000;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, TryFromPrimitive, IntoPrimitive)]
 #[repr(u8)]
 pub enum Action {
@@ -259,7 +261,7 @@ impl PacmanGym {
                 reward += -200;
             } else {
                 // Pacman cleared the board! Good Pacman.
-                reward += 3_000;
+                reward += LAST_REWARD as i32;
             }
         }
         self.last_score = game_state.curr_score;
@@ -276,7 +278,7 @@ impl PacmanGym {
     }
 
     pub fn is_done(&self) -> bool {
-        self.game_engine.get_state().get_lives() < 3
+        self.game_engine.get_state().get_lives() < 3 || self.game_engine.get_state().get_num_pellets() == 0
     }
 
     pub fn remaining_pellets(&self) -> u16 {
@@ -383,7 +385,7 @@ impl PacmanGym {
     /// Returns an observation array/tensor constructed from the game state.
     pub fn obs(&self) -> Array3<f32> {
         let game_state = self.game_engine.get_state();
-        let mut obs_array = Array::zeros((16, 28, 31));
+        let mut obs_array = Array::zeros((17, 28, 31));
         let (mut wall, mut reward, mut pacman, mut ghost, mut last_ghost, mut state) = obs_array
             .multi_slice_mut((
                 s![0, .., ..],
@@ -399,11 +401,16 @@ impl PacmanGym {
                 let obs_row = 31 - row - 1;
                 wall[(col, obs_row)] = game_state.wall_at((row as i8, col as i8)) as u8 as f32;
                 reward[(col, obs_row)] = if game_state.pellet_at((row as i8, col as i8)) {
-                    if ((row == 3) || (row == 23)) && ((col == 1) || (col == 26)) {
+                    (if ((row == 3) || (row == 23)) && ((col == 1) || (col == 26)) {
                         variables::SUPER_PELLET_POINTS
                     } else {
                         variables::PELLET_POINTS
+                    }) + (if game_state.num_pellets == 1 {
+                        LAST_REWARD
                     }
+                    else {
+                        0
+                    })
                 } else if game_state.fruit_exists()
                     && col == game_state.fruit_loc.col as usize
                     && row == game_state.fruit_loc.row as usize
@@ -456,6 +463,16 @@ impl PacmanGym {
         obs_array
             .slice_mut(s![15, .., ..])
             .fill(self.ticks_per_step as f32 / game_state.get_update_period() as f32);
+
+        // Super pellet map
+        for row in 0..31 {
+            for col in 0..28 {
+                let obs_row = 31 - row - 1;
+                if game_state.pellet_at((row as i8, col as i8)) && ((row == 3) || (row == 23)) && ((col == 1) || (col == 26)) {
+                    obs_array[(16, col, obs_row)] = 1.;
+                }
+            }
+        }
 
         obs_array
     }

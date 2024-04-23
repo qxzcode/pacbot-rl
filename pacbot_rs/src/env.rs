@@ -7,7 +7,8 @@ use pacbot_rs_2::game_engine::GameEngine;
 use pacbot_rs_2::game_modes::GameMode;
 use pacbot_rs_2::location::{LocationState, DOWN, LEFT, RIGHT, UP};
 use pacbot_rs_2::variables::{
-    self, COMBO_MULTIPLIER, FRUIT_POINTS, GHOST_FRIGHT_STEPS, PELLET_POINTS, SUPER_PELLET_POINTS
+    self, COMBO_MULTIPLIER, FRUIT_POINTS, GHOST_FRIGHT_STEPS, INIT_LEVEL, PELLET_POINTS,
+    SUPER_PELLET_POINTS,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -264,6 +265,18 @@ impl PacmanGym {
                 reward += LAST_REWARD as i32;
             }
         }
+        // Punishment for being too close to a ghost
+        let pacbot_pos = self.game_engine.get_state().pacman_loc;
+        for ghost in &game_state.ghosts {
+            let ghost_pos = ghost.loc;
+            reward += match (pacbot_pos.row - ghost_pos.row).abs()
+                + (pacbot_pos.col - ghost_pos.col).abs()
+            {
+                1 => -50,
+                2 => -20,
+                _ => 0,
+            };
+        }
         self.last_score = game_state.curr_score;
 
         (reward, done)
@@ -278,7 +291,8 @@ impl PacmanGym {
     }
 
     pub fn is_done(&self) -> bool {
-        self.game_engine.get_state().get_lives() < 3 || self.game_engine.get_state().get_num_pellets() == 0
+        self.game_engine.get_state().get_lives() < 3
+            || self.game_engine.get_state().get_level() != INIT_LEVEL
     }
 
     pub fn remaining_pellets(&self) -> u16 {

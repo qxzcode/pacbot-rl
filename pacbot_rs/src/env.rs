@@ -27,6 +27,9 @@ const MAX_TICKS_PER_STEP: u32 = 14;
 /// Whether to randomize the ghosts' positions when `random_start = true`.
 const RANDOMIZE_GHOSTS: bool = true;
 
+/// Whether to remove super pellets from the board before starting the game
+const REMOVE_SUPER_PELLETS: bool = true;
+
 /// Penalty for turning.
 const TURN_PENALTY: i32 = -10;
 
@@ -191,6 +194,13 @@ impl PacmanGym {
                         }
                     }
                 }
+            }
+        }
+
+        if REMOVE_SUPER_PELLETS {
+            for (row, col) in [(3, 1), (23, 1), (3, 26), (23, 26)] {
+                modify_bit_u32(&mut game_state.pellets[row as usize], col as usize, false);
+                game_state.decrement_num_pellets();
             }
         }
 

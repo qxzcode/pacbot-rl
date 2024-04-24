@@ -268,14 +268,16 @@ impl PacmanGym {
         // Punishment for being too close to a ghost
         let pacbot_pos = self.game_engine.get_state().pacman_loc;
         for ghost in &game_state.ghosts {
-            let ghost_pos = ghost.loc;
-            reward += match (pacbot_pos.row - ghost_pos.row).abs()
-                + (pacbot_pos.col - ghost_pos.col).abs()
-            {
-                1 => -50,
-                2 => -20,
-                _ => 0,
-            };
+            if !ghost.is_frightened() {
+                let ghost_pos = ghost.loc;
+                reward += match (pacbot_pos.row - ghost_pos.row).abs()
+                    + (pacbot_pos.col - ghost_pos.col).abs()
+                {
+                    1 => -50,
+                    2 => -20,
+                    _ => 0,
+                };
+            }
         }
         self.last_score = game_state.curr_score;
 

@@ -44,6 +44,8 @@ class ReplayBuffer(Generic[P]):
         self._buffer = deque[ReplayItem](maxlen=maxlen)
         self.policy = policy
         self.device = device
+        self.max_priority = 0.1
+        self.priorities = deque[float](maxlen=maxlen)
 
         # Initialize the environments.
         self._envs = [
@@ -100,6 +102,7 @@ class ReplayBuffer(Generic[P]):
             #     self._buffer.append(item)
             # Add the transition to the replay buffer.
             self._buffer.append(ReplayItem(last_obs, action, reward, next_obs, next_action_mask))
+            self.priorities.append(self.max_priority)
 
             # Reset the environment if necessary and update last_obs.
             if next_obs is None:
@@ -110,6 +113,17 @@ class ReplayBuffer(Generic[P]):
 
         self._last_obs = torch.stack(next_obs_stack)
 
-    def sample_batch(self, batch_size: int) -> list[ReplayItem]:
+    def sample_batch(self, batch_size: int) -> tuple[list[ReplayItem], list[int], np.ndarray]:
         """Samples a batch of transitions from the buffer."""
-        return random.sample(self._buffer, k=batch_size)
+        p = np.array(self.priorities)
+        p = p / p.sum()
+        indices = np.random.choice(range(len(self._buffer)), batch_size, p=p)
+        probs = p[indices]
+        return [self._buffer[i] for i in indices], indices.tolist(), probs
+    
+    def update_losses(self, indices: list[int], losses: list[float]):
+        """Updates the priorities of sampled experiences."""
+        for idx, error in zip(indices, losses):
+            priority = abs(error) + 1e-3
+            self.priorities[idx] = priority
+            self.max_priority = max(self.max_priority, priority)

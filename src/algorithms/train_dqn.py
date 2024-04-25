@@ -122,6 +122,7 @@ def train():
     )
     replay_buffer.fill()
     replay_buffer.policy.epsilon = wandb.config.initial_epsilon
+    priority = 1.0 # TODO: Make this annealable from a value specified as a hyperparam to 1
 
     # Initialize the optimizer.
     optimizer = torch.optim.Adam(q_net.parameters(), lr=wandb.config.learning_rate)
@@ -143,7 +144,7 @@ def train():
         with time_block("Collate batch"):
             # Sample and collate a batch.
             with device:
-                batch = replay_buffer.sample_batch(wandb.config.batch_size)
+                batch, indices, probs = replay_buffer.sample_batch(wandb.config.batch_size)
                 obs_batch = torch.stack([item.obs for item in batch])
                 next_obs_batch = torch.stack(
                     [
@@ -186,7 +187,9 @@ def train():
                 with autocast:
                     all_predicted_q_values = q_net(obs_batch)
                     predicted_q_values = all_predicted_q_values[range(len(batch)), action_batch]
-                    loss = F.mse_loss(predicted_q_values, target_q_values)
+                    diffs = (predicted_q_values - target_q_values)
+                    replay_buffer.update_losses(indices, diffs.tolist())
+                    loss = ((1. / torch.from_numpy(probs).to(device))**priority * diffs**2).mean()
 
             with time_block("Backward pass"):
                 grad_scaler.scale(loss).backward()

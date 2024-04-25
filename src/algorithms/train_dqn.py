@@ -229,17 +229,16 @@ def train():
                 # Save a checkpoint.
                 checkpoint_dir = Path(args.checkpoint_dir)
                 checkpoint_dir.mkdir(exist_ok=True)
-                torch.save(q_net, checkpoint_dir / "q_net-latest.pt")
-                shutil.copyfile(
-                    checkpoint_dir / "q_net-latest.pt",
-                    checkpoint_dir / f"q_net-iter{iter_num:07}.pt",
-                )
+                pt_path = checkpoint_dir / "q_net-latest.pt"
+                torch.save(q_net, pt_path)
+                shutil.copyfile(pt_path, checkpoint_dir / f"q_net-iter{iter_num:07}.pt")
 
                 if iter_num % 10_000 == 0:
                     # Log a .safetensors checkpoint to WandB.
                     safetensors_path = checkpoint_dir / "q_net-latest.safetensors"
                     safetensors.torch.save_file(q_net.state_dict(), safetensors_path)
                     wandb.log_artifact(safetensors_path, type="model")
+                    wandb.log_artifact(pt_path, type="model")
 
         # Anneal the exploration policy's epsilon.
         replay_buffer.policy.epsilon = lerp(

@@ -86,14 +86,15 @@ if args.finetune:
 
 
 @torch.no_grad()
-def evaluate_episode(max_steps: int = 1000) -> tuple[int, int, bool]:
+def evaluate_episode(max_steps: int = 1000) -> tuple[int, int, bool, int, int]:
     """
     Performs a single evaluation episode.
 
-    Returns (score, total_steps, is_board_cleared).
+    Returns (score, total_steps, is_board_cleared, pellets_start, pellets_end).
     """
     gym = PacmanGym(random_start=False, random_ticks=False)
     reset_env(gym)
+    pellets_start = gym.remaining_pellets()
 
     q_net.eval()
     policy = MaxQPolicy(q_net)
@@ -106,7 +107,10 @@ def evaluate_episode(max_steps: int = 1000) -> tuple[int, int, bool]:
         if done:
             break
 
-    return (gym.score(), step_num, done and gym.lives() == 3)
+    is_board_cleared = done and gym.lives() == 3
+    pellets_end = 0 if is_board_cleared else gym.remaining_pellets()
+
+    return (gym.score(), step_num, is_board_cleared, pellets_start, pellets_end)
 
 
 def train():
@@ -216,11 +220,19 @@ def train():
             if iter_num % wandb.config.evaluate_steps == 0:
                 with time_block("Evaluate the current agent"):
                     # Evaluate the current agent.
-                    eval_episode_score, eval_episode_steps, cleared_board = evaluate_episode()
+                    (
+                        eval_episode_score,
+                        eval_episode_steps,
+                        cleared_board,
+                        pellets_start,
+                        pellets_end,
+                    ) = evaluate_episode()
                     metrics.update(
                         eval_episode_score=eval_episode_score,
                         eval_episode_steps=eval_episode_steps,
                         cleared_board=int(cleared_board),
+                        eval_pellets_start=pellets_start,
+                        eval_pellets_end=pellets_end,
                     )
             wandb.log(metrics)
 

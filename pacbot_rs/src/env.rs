@@ -28,7 +28,7 @@ const MAX_TICKS_PER_STEP: u32 = 14;
 const RANDOMIZE_GHOSTS: bool = true;
 
 /// Whether to remove super pellets from the board before starting the game
-const REMOVE_SUPER_PELLETS: bool = true;
+const REMOVE_SUPER_PELLETS: bool = false;
 
 /// Penalty for turning.
 const TURN_PENALTY: i32 = -10;
@@ -305,6 +305,18 @@ impl PacmanGym {
     pub fn is_done(&self) -> bool {
         self.game_engine.get_state().get_lives() < 3
             || self.game_engine.get_state().get_level() != INIT_LEVEL
+    }
+
+    pub fn first_ai_done(&self) -> bool {
+        // are super pellets gone and ghosts not frightened? then switch models
+        [(3, 1), (3, 26), (23, 1), (23, 26)]
+            .into_iter()
+            .all(|x| !self.game_engine.get_state().pellet_at(x))
+            && self.game_engine
+            .get_state()
+            .ghosts
+            .iter()
+            .all(|g| !g.is_frightened())
     }
 
     pub fn remaining_pellets(&self) -> u16 {

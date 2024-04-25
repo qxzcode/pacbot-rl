@@ -16,7 +16,7 @@ from pacbot_rs import PacmanGym
 
 import models
 from policies import EpsilonGreedy, MaxQPolicy
-from replay_buffer import ReplayBuffer
+from replay_buffer import ReplayBuffer, reset_env
 from timing import time_block
 from utils import lerp
 
@@ -91,7 +91,7 @@ def evaluate_episode(max_steps: int = 1000) -> tuple[int, int, bool]:
     Returns (score, total_steps, is_board_cleared).
     """
     gym = PacmanGym(random_start=False, random_ticks=False)
-    gym.reset()
+    reset_env(gym)
 
     q_net.eval()
     policy = MaxQPolicy(q_net)
@@ -249,7 +249,7 @@ def train():
 @torch.no_grad()
 def visualize_agent():
     gym = PacmanGym(random_start=False, random_ticks=False)
-    gym.reset()
+    reset_env(gym)
 
     q_net.eval()
 

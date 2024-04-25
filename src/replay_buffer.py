@@ -30,7 +30,7 @@ DebugProbeGym = CartPoleGym
 from pacbot_rs import PacmanGym
 import models
 from policies import MaxQPolicy
-import safetensors
+import safetensors.torch
 
 # Initialize the Q network for the old model.
 obs_shape = PacmanGym(random_start=True, random_ticks=True).obs_numpy().shape

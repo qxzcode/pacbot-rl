@@ -189,7 +189,8 @@ def train():
                     predicted_q_values = all_predicted_q_values[range(len(batch)), action_batch]
                     diffs = (predicted_q_values - target_q_values)
                     replay_buffer.update_losses(indices, diffs.tolist())
-                    loss = ((torch.from_numpy(probs).to(device))**priority * diffs**2).mean()
+                    w = 1 / torch.from_numpy(probs).to(device)
+                    loss = ((w / w.sum())**priority * diffs**2).mean()
 
             with time_block("Backward pass"):
                 grad_scaler.scale(loss).backward()

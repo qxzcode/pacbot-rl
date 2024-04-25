@@ -41,7 +41,9 @@ q_net_old.eval()
 policy_old = MaxQPolicy(q_net_old)
 
 
-def reset_env(env) -> None:
+def reset_env(env: PacmanGym) -> None:
+    env.reset()
+
     while not env.first_ai_done():
         obs = torch.from_numpy(env.obs_numpy()).to("cpu").unsqueeze(0)
         action_mask = torch.tensor(env.action_mask(), device="cpu").unsqueeze(0)
@@ -71,7 +73,9 @@ class ReplayBuffer(Generic[P]):
 
         # Initialize the environments.
         self._envs = [
-            pacbot_rs.PacmanGym(random_start=i < num_parallel_envs * random_start_proportion, random_ticks=True)
+            pacbot_rs.PacmanGym(
+                random_start=i < num_parallel_envs * random_start_proportion, random_ticks=True
+            )
             for i in range(num_parallel_envs)
         ]
         for env in self._envs:

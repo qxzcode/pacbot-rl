@@ -7,10 +7,12 @@ import shutil
 import time
 import numpy as np
 
+import safetensors.torch
 import torch
 import torch.nn.functional as F
 import wandb
 from tqdm import tqdm
+
 
 from pacbot_rs import PacmanGym
 
@@ -232,6 +234,12 @@ def train():
                     checkpoint_dir / "q_net-latest.pt",
                     checkpoint_dir / f"q_net-iter{iter_num:07}.pt",
                 )
+
+                if iter_num % 10_000 == 0:
+                    # Log a .safetensors checkpoint to WandB.
+                    safetensors_path = checkpoint_dir / "q_net-latest.safetensors"
+                    safetensors.torch.save_file(q_net.state_dict(), safetensors_path)
+                    wandb.log_artifact(safetensors_path, type="model")
 
         # Anneal the exploration policy's epsilon.
         replay_buffer.policy.epsilon = lerp(

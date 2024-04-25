@@ -245,8 +245,8 @@ def train():
                 torch.save(q_net, pt_path)
                 shutil.copyfile(pt_path, checkpoint_dir / f"q_net-iter{iter_num:07}.pt")
 
-                if iter_num % 10_000 == 0:
-                    # Log a .safetensors checkpoint to WandB.
+                if iter_num % 1_000 == 0:
+                    # Log checkpoints to WandB.
                     safetensors_path = checkpoint_dir / "q_net-latest.safetensors"
                     safetensors.torch.save_file(q_net.state_dict(), safetensors_path)
                     wandb.log_artifact(safetensors_path, type="model")

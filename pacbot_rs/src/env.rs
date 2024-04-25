@@ -31,7 +31,7 @@ const RANDOMIZE_GHOSTS: bool = true;
 const REMOVE_SUPER_PELLETS: bool = false;
 
 /// Penalty for turning.
-const TURN_PENALTY: i32 = -10;
+const TURN_PENALTY: i32 = -2;
 
 const LAST_REWARD: u16 = 3_000;
 

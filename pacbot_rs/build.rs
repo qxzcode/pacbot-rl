@@ -25,10 +25,8 @@ fn count_pellets<P: AsRef<Path>>(super_pellets: bool, out_path: P) -> io::Result
                     if super_pellets {
                         count += 1;
                     }
-                } else {
-                    if !super_pellets {
-                        count += 1;
-                    }
+                } else if !super_pellets {
+                    count += 1;
                 }
             }
         }

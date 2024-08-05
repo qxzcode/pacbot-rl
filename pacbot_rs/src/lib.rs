@@ -1,4 +1,8 @@
 pub mod alphazero;
+#[cfg(feature = "candle")]
+pub mod candle_inference;
+#[cfg(feature = "candle")]
+pub mod candle_qnet;
 pub mod env;
 pub mod grid;
 pub mod mcts;

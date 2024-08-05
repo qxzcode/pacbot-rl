@@ -10,6 +10,8 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rand::{seq::SliceRandom, Rng};
 
+pub const OBS_SHAPE: (usize, usize, usize) = (17, 28, 31);
+
 pub const TICKS_PER_UPDATE: u32 = 12;
 /// How many ticks the game should move every step normally. Ghosts move every 12 ticks.
 const NORMAL_TICKS_PER_STEP: u32 = 8;
@@ -102,22 +104,7 @@ impl PacmanGym {
     #[new]
     pub fn new(random_start: bool, random_ticks: bool) -> Self {
         let game_state = GameState { paused: false, ..GameState::new() };
-        let last_ghost_pos = [
-            loc_to_pos(game_state.ghosts[0].loc),
-            loc_to_pos(game_state.ghosts[1].loc),
-            loc_to_pos(game_state.ghosts[2].loc),
-            loc_to_pos(game_state.ghosts[3].loc),
-        ];
-        Self {
-            random_start,
-            last_score: 0,
-            last_action: Action::Stay,
-            last_ghost_pos,
-            last_pos: loc_to_pos(game_state.pacman_loc),
-            game_state,
-            ticks_per_step: NORMAL_TICKS_PER_STEP,
-            random_ticks,
-        }
+        Self::new_with_state(random_start, random_ticks, game_state)
     }
 
     pub fn reset(&mut self) {
@@ -216,13 +203,11 @@ impl PacmanGym {
         self.last_pos = loc_to_pos(self.game_state.pacman_loc);
         self.move_one_cell(action);
 
-        let game_state = &mut self.game_state;
-
         let entity_positions = [
-            loc_to_pos(game_state.ghosts[0].loc),
-            loc_to_pos(game_state.ghosts[1].loc),
-            loc_to_pos(game_state.ghosts[2].loc),
-            loc_to_pos(game_state.ghosts[3].loc),
+            loc_to_pos(self.game_state.ghosts[0].loc),
+            loc_to_pos(self.game_state.ghosts[1].loc),
+            loc_to_pos(self.game_state.ghosts[2].loc),
+            loc_to_pos(self.game_state.ghosts[3].loc),
         ];
 
         // step through environment multiple times
@@ -380,6 +365,57 @@ impl PacmanGym {
 }
 
 impl PacmanGym {
+    pub fn new_with_state(random_start: bool, random_ticks: bool, game_state: GameState) -> Self {
+        let last_ghost_pos = [
+            loc_to_pos(game_state.ghosts[0].loc),
+            loc_to_pos(game_state.ghosts[1].loc),
+            loc_to_pos(game_state.ghosts[2].loc),
+            loc_to_pos(game_state.ghosts[3].loc),
+        ];
+        Self {
+            random_start,
+            last_score: 0,
+            last_action: Action::Stay,
+            last_ghost_pos,
+            last_pos: loc_to_pos(game_state.pacman_loc),
+            game_state,
+            ticks_per_step: NORMAL_TICKS_PER_STEP,
+            random_ticks,
+        }
+    }
+
+    pub fn set_state(&mut self, new_state: GameState) {
+        // Update Pacman pos
+        self.last_pos = loc_to_pos(self.game_state.pacman_loc);
+        self.game_state = new_state;
+
+        let entity_positions = [
+            loc_to_pos(self.game_state.ghosts[0].loc),
+            loc_to_pos(self.game_state.ghosts[1].loc),
+            loc_to_pos(self.game_state.ghosts[2].loc),
+            loc_to_pos(self.game_state.ghosts[3].loc),
+        ];
+
+        self.last_action = Action::Stay;
+
+        let game_state = &self.game_state;
+
+        // If the ghost positions change, update the last ghost positions
+        let new_entity_positions = [
+            loc_to_pos(game_state.ghosts[0].loc),
+            loc_to_pos(game_state.ghosts[1].loc),
+            loc_to_pos(game_state.ghosts[2].loc),
+            loc_to_pos(game_state.ghosts[3].loc),
+        ];
+        let pos_changed =
+            entity_positions.iter().zip(&new_entity_positions).any(|(e1, e2)| e1 != e2);
+        if pos_changed {
+            self.last_ghost_pos = entity_positions;
+        }
+
+        self.last_score = game_state.curr_score;
+    }
+
     fn move_one_cell(&mut self, action: Action) {
         let old_pos = self.game_state.pacman_loc;
         let new_pos = match action {
@@ -410,7 +446,7 @@ impl PacmanGym {
     /// Returns an observation array/tensor constructed from the game state.
     pub fn obs(&self) -> Array3<f32> {
         let game_state = &self.game_state;
-        let mut obs_array = Array::zeros((17, 28, 31));
+        let mut obs_array = Array::zeros(OBS_SHAPE);
         let (mut wall, mut reward, mut pacman, mut ghost, mut last_ghost, mut state) = obs_array
             .multi_slice_mut((
                 s![0, .., ..],

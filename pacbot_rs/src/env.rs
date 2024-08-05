@@ -10,6 +10,16 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rand::{seq::SliceRandom, Rng};
 
+#[derive(Copy, Clone, Debug, Default)]
+pub struct PacmanGymConfiguration {
+    pub random_start: bool,
+    pub random_ticks: bool,
+    /// Whether to randomize the ghosts' positions when `random_start = true`.
+    pub randomize_ghosts: bool,
+    /// Whether to remove super pellets from the board before starting the game
+    pub remove_super_pellets: bool,
+}
+
 pub const OBS_SHAPE: (usize, usize, usize) = (17, 28, 31);
 
 pub const TICKS_PER_UPDATE: u32 = 12;
@@ -21,12 +31,6 @@ const MIN_TICKS_PER_STEP: u32 = 4;
 
 /// Maximum number of ticks per step.
 const MAX_TICKS_PER_STEP: u32 = 14;
-
-/// Whether to randomize the ghosts' positions when `random_start = true`.
-const RANDOMIZE_GHOSTS: bool = true;
-
-/// Whether to remove super pellets from the board before starting the game
-const REMOVE_SUPER_PELLETS: bool = false;
 
 /// Penalty for turning.
 const TURN_PENALTY: i32 = -2;
@@ -79,6 +83,8 @@ pub struct PacmanGym {
     last_pos: Option<(usize, usize)>,
     ticks_per_step: u32,
     random_ticks: bool,
+    randomize_ghosts: bool,
+    remove_super_pellets: bool,
 }
 
 fn modify_bit_u32(num: &mut u32, bit_idx: usize, bit_val: bool) {
@@ -104,28 +110,30 @@ impl PacmanGym {
     #[new]
     pub fn new(random_start: bool, random_ticks: bool) -> Self {
         let game_state = GameState { paused: false, ..GameState::new() };
-        Self::new_with_state(random_start, random_ticks, game_state)
+        let configuration =
+            PacmanGymConfiguration { random_start, random_ticks, ..Default::default() };
+        Self::new_with_state(configuration, game_state)
     }
 
     pub fn reset(&mut self) {
         self.last_score = 0;
         self.game_state = GameState::new();
 
+        self.apply_configuration();
+
         let rng = &mut rand::thread_rng();
         if self.random_ticks {
             self.ticks_per_step = rng.gen_range(MIN_TICKS_PER_STEP..MAX_TICKS_PER_STEP);
         }
 
-        let game_state = &mut self.game_state;
-
         if self.random_start {
             let mut random_pos = || *NODE_COORDS.choose(rng).unwrap();
 
             let pac_random_pos = random_pos();
-            game_state.pacman_loc = LocationState::new(pac_random_pos.0, pac_random_pos.1, 0);
+            self.game_state.pacman_loc = LocationState::new(pac_random_pos.0, pac_random_pos.1, 0);
 
-            if RANDOMIZE_GHOSTS {
-                for ghost in &mut game_state.ghosts {
+            if self.randomize_ghosts {
+                for ghost in &mut self.game_state.ghosts {
                     ghost.trapped_steps = 0;
                     let ghost_random_pos = random_pos();
                     // find a valid next space
@@ -156,7 +164,7 @@ impl PacmanGym {
             if wipe_type != 0 {
                 for row in 0..31 {
                     for col in 0..28 {
-                        if game_state.pellet_at((row, col))
+                        if self.game_state.pellet_at((row, col))
                             && match wipe_type {
                                 1 => col < 28 / 2,
                                 2 => col >= 28 / 2,
@@ -166,29 +174,22 @@ impl PacmanGym {
                             }
                         {
                             modify_bit_u32(
-                                &mut game_state.pellets[row as usize],
+                                &mut self.game_state.pellets[row as usize],
                                 col as usize,
                                 false,
                             );
-                            game_state.decrement_num_pellets();
+                            self.game_state.decrement_num_pellets();
                         }
                     }
                 }
             }
         }
 
-        if REMOVE_SUPER_PELLETS {
-            for (row, col) in [(3, 1), (23, 1), (3, 26), (23, 26)] {
-                modify_bit_u32(&mut game_state.pellets[row as usize], col as usize, false);
-                game_state.decrement_num_pellets();
-            }
-        }
-
         self.last_ghost_pos = [
-            loc_to_pos(game_state.ghosts[0].loc),
-            loc_to_pos(game_state.ghosts[1].loc),
-            loc_to_pos(game_state.ghosts[2].loc),
-            loc_to_pos(game_state.ghosts[3].loc),
+            loc_to_pos(self.game_state.ghosts[0].loc),
+            loc_to_pos(self.game_state.ghosts[1].loc),
+            loc_to_pos(self.game_state.ghosts[2].loc),
+            loc_to_pos(self.game_state.ghosts[3].loc),
         ];
         self.last_action = Action::Stay;
         self.last_pos = None;
@@ -365,22 +366,35 @@ impl PacmanGym {
 }
 
 impl PacmanGym {
-    pub fn new_with_state(random_start: bool, random_ticks: bool, game_state: GameState) -> Self {
+    pub fn new_with_state(configuration: PacmanGymConfiguration, game_state: GameState) -> Self {
         let last_ghost_pos = [
             loc_to_pos(game_state.ghosts[0].loc),
             loc_to_pos(game_state.ghosts[1].loc),
             loc_to_pos(game_state.ghosts[2].loc),
             loc_to_pos(game_state.ghosts[3].loc),
         ];
-        Self {
-            random_start,
+        let mut s = Self {
+            random_start: configuration.random_start,
             last_score: 0,
             last_action: Action::Stay,
             last_ghost_pos,
             last_pos: loc_to_pos(game_state.pacman_loc),
             game_state,
             ticks_per_step: NORMAL_TICKS_PER_STEP,
-            random_ticks,
+            random_ticks: configuration.random_ticks,
+            randomize_ghosts: configuration.randomize_ghosts,
+            remove_super_pellets: configuration.remove_super_pellets,
+        };
+        s.apply_configuration();
+        s
+    }
+
+    fn apply_configuration(&mut self) {
+        if self.remove_super_pellets {
+            for (row, col) in [(3, 1), (23, 1), (3, 26), (23, 26)] {
+                modify_bit_u32(&mut self.game_state.pellets[row as usize], col as usize, false);
+                self.game_state.decrement_num_pellets();
+            }
         }
     }
 
@@ -388,6 +402,8 @@ impl PacmanGym {
         // Update Pacman pos
         self.last_pos = loc_to_pos(self.game_state.pacman_loc);
         self.game_state = new_state;
+
+        self.apply_configuration();
 
         let entity_positions = [
             loc_to_pos(self.game_state.ghosts[0].loc),

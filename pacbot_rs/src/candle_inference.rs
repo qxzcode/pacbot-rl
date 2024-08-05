@@ -1,5 +1,5 @@
 use crate::candle_qnet::QNetV2;
-use crate::env::{Action, PacmanGym, OBS_SHAPE};
+use crate::env::{Action, PacmanGym, PacmanGymConfiguration, OBS_SHAPE};
 use crate::grid::coords_to_node;
 use candle_core::{Device, Module, Tensor, D};
 use candle_nn as nn;
@@ -8,11 +8,12 @@ use pacbot_rs_2::game_state::GameState;
 pub struct CandleInference {
     pub net: QNetV2,
     pub gym: PacmanGym,
+    pub configuration: PacmanGymConfiguration,
 }
 
 impl CandleInference {
     /// Create a new `CandleInference` that can be used to get actions for a specific model
-    pub fn new(weights_path: &str) -> Self {
+    pub fn new(weights_path: &str, configuration: PacmanGymConfiguration) -> Self {
         let mut vm = nn::VarMap::new();
         let vb =
             nn::VarBuilder::from_varmap(&vm, candle_core::DType::F32, &candle_core::Device::Cpu);
@@ -24,7 +25,7 @@ impl CandleInference {
         .unwrap();
         vm.load(weights_path).unwrap();
 
-        Self { net, gym: PacmanGym::new(false, false) }
+        Self { net, gym: PacmanGym::new(false, false), configuration }
     }
 
     /// Information from the previous game state is used during inference. If you plan on
@@ -32,7 +33,7 @@ impl CandleInference {
     /// use this method or [`CandleInference::get_actions_with_previous`] to provide the previous
     /// game state.
     pub fn reset_with_state(&mut self, game_state: GameState) {
-        self.gym = PacmanGym::new_with_state(false, false, game_state);
+        self.gym = PacmanGym::new_with_state(self.configuration, game_state);
     }
 
     /// Given a game state, find the reward the model predicts for each action. Indices available

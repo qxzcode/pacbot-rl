@@ -4,7 +4,7 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 use numpy::{IntoPyArray, PyArray3};
 use pacbot_rs_2::game_modes::GameMode;
 use pacbot_rs_2::game_state::GameState;
-use pacbot_rs_2::location::{LocationState, DOWN, LEFT, RIGHT, UP};
+use pacbot_rs_2::location::{Direction::*, LocationState};
 use pacbot_rs_2::variables::{self, GHOST_FRIGHT_STEPS, INIT_LEVEL};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -130,7 +130,7 @@ impl PacmanGym {
             let mut random_pos = || *NODE_COORDS.choose(rng).unwrap();
 
             let pac_random_pos = random_pos();
-            self.game_state.pacman_loc = LocationState::new(pac_random_pos.0, pac_random_pos.1, 0);
+            self.game_state.pacman_loc = LocationState::new(pac_random_pos.0, pac_random_pos.1, Up);
 
             if self.randomize_ghosts {
                 for ghost in &mut self.game_state.ghosts {
@@ -148,10 +148,10 @@ impl PacmanGym {
                         row: ghost_random_pos.0,
                         col: ghost_random_pos.1,
                         dir: match valid_moves.0 {
-                            1 => DOWN,
-                            2 => UP,
-                            3 => RIGHT,
-                            4 => LEFT,
+                            1 => Down,
+                            2 => Up,
+                            3 => Right,
+                            4 => Left,
                             _ => unreachable!(),
                         },
                     };
@@ -442,20 +442,7 @@ impl PacmanGym {
             Action::Down => (old_pos.row + 1, old_pos.col),
         };
         if !self.game_state.wall_at(new_pos) {
-            let old_pos = self.game_state.pacman_loc;
-            self.game_state.set_pacman_location(LocationState {
-                row: new_pos.0,
-                col: new_pos.1,
-                dir: if old_pos.row < new_pos.0 {
-                    DOWN
-                } else if old_pos.row > new_pos.0 {
-                    UP
-                } else if old_pos.col < new_pos.1 {
-                    RIGHT
-                } else {
-                    LEFT
-                },
-            });
+            self.game_state.set_pacman_location(new_pos);
         }
     }
 

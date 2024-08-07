@@ -77,11 +77,9 @@ pub struct PacmanGym {
     pub random_start: bool,
     last_score: u16,
     last_action: Action,
-    /// Position of ghosts on the last frame, in obs coords.
-    last_ghost_pos: [Option<(usize, usize)>; 4],
-    /// Position of Pacman on the last frame, in obs coords.
-    last_pos: Option<(usize, usize)>,
+
     ticks_per_step: u32,
+
     random_ticks: bool,
     randomize_ghosts: bool,
     remove_super_pellets: bool,
@@ -185,15 +183,7 @@ impl PacmanGym {
             }
         }
 
-        self.last_ghost_pos = [
-            loc_to_pos(self.game_state.ghosts[0].loc),
-            loc_to_pos(self.game_state.ghosts[1].loc),
-            loc_to_pos(self.game_state.ghosts[2].loc),
-            loc_to_pos(self.game_state.ghosts[3].loc),
-        ];
         self.last_action = Action::Stay;
-        self.last_pos = None;
-
         self.game_state.paused = false;
     }
 
@@ -201,15 +191,7 @@ impl PacmanGym {
     /// Returns (reward, done).
     pub fn step(&mut self, action: Action) -> (i32, bool) {
         // Update Pacman pos
-        self.last_pos = loc_to_pos(self.game_state.pacman_loc);
         self.move_one_cell(action);
-
-        let entity_positions = [
-            loc_to_pos(self.game_state.ghosts[0].loc),
-            loc_to_pos(self.game_state.ghosts[1].loc),
-            loc_to_pos(self.game_state.ghosts[2].loc),
-            loc_to_pos(self.game_state.ghosts[3].loc),
-        ];
 
         // step through environment multiple times
         let turn_penalty = if self.last_action == action || self.last_action == Action::Stay {
@@ -226,19 +208,6 @@ impl PacmanGym {
         self.last_action = action;
 
         let game_state = &self.game_state;
-
-        // If the ghost positions change, update the last ghost positions
-        let new_entity_positions = [
-            loc_to_pos(game_state.ghosts[0].loc),
-            loc_to_pos(game_state.ghosts[1].loc),
-            loc_to_pos(game_state.ghosts[2].loc),
-            loc_to_pos(game_state.ghosts[3].loc),
-        ];
-        let pos_changed =
-            entity_positions.iter().zip(&new_entity_positions).any(|(e1, e2)| e1 != e2);
-        if pos_changed {
-            self.last_ghost_pos = entity_positions;
-        }
 
         let done = self.is_done();
 
@@ -367,18 +336,10 @@ impl PacmanGym {
 
 impl PacmanGym {
     pub fn new_with_state(configuration: PacmanGymConfiguration, game_state: GameState) -> Self {
-        let last_ghost_pos = [
-            loc_to_pos(game_state.ghosts[0].loc),
-            loc_to_pos(game_state.ghosts[1].loc),
-            loc_to_pos(game_state.ghosts[2].loc),
-            loc_to_pos(game_state.ghosts[3].loc),
-        ];
         let mut s = Self {
             random_start: configuration.random_start,
             last_score: 0,
             last_action: Action::Stay,
-            last_ghost_pos,
-            last_pos: loc_to_pos(game_state.pacman_loc),
             game_state,
             ticks_per_step: NORMAL_TICKS_PER_STEP,
             random_ticks: configuration.random_ticks,
@@ -398,38 +359,13 @@ impl PacmanGym {
         }
     }
 
-    pub fn set_state(&mut self, new_state: GameState) {
-        // Update Pacman pos
-        self.last_pos = loc_to_pos(self.game_state.pacman_loc);
+    pub fn set_state(&mut self, new_state: GameState, ticks_per_step: u32) {
         self.game_state = new_state;
-
+        self.ticks_per_step = ticks_per_step;
         self.apply_configuration();
 
-        let entity_positions = [
-            loc_to_pos(self.game_state.ghosts[0].loc),
-            loc_to_pos(self.game_state.ghosts[1].loc),
-            loc_to_pos(self.game_state.ghosts[2].loc),
-            loc_to_pos(self.game_state.ghosts[3].loc),
-        ];
-
         self.last_action = Action::Stay;
-
-        let game_state = &self.game_state;
-
-        // If the ghost positions change, update the last ghost positions
-        let new_entity_positions = [
-            loc_to_pos(game_state.ghosts[0].loc),
-            loc_to_pos(game_state.ghosts[1].loc),
-            loc_to_pos(game_state.ghosts[2].loc),
-            loc_to_pos(game_state.ghosts[3].loc),
-        ];
-        let pos_changed =
-            entity_positions.iter().zip(&new_entity_positions).any(|(e1, e2)| e1 != e2);
-        if pos_changed {
-            self.last_ghost_pos = entity_positions;
-        }
-
-        self.last_score = game_state.curr_score;
+        self.last_score = self.game_state.curr_score;
     }
 
     fn move_one_cell(&mut self, action: Action) {
@@ -486,7 +422,10 @@ impl PacmanGym {
         let new_pos = loc_to_pos(game_state.pacman_loc);
         let new_ghost_pos: Vec<_> = game_state.ghosts.iter().map(|g| loc_to_pos(g.loc)).collect();
 
-        if let Some(last_pos) = self.last_pos {
+        // last pos is not useful information during competition because our position changes are
+        // continuous, not linked to discrete steps, which makes it difficult to track
+        // in the future, the AI should be given the next position in the direction we are facing
+        if let Some(last_pos) = /* self.last_pos */ new_pos {
             pacman[(0, last_pos.0, last_pos.1)] = 1.0;
         }
         if let Some(new_pos) = new_pos {
@@ -507,7 +446,10 @@ impl PacmanGym {
             }
         }
 
-        for (i, pos) in self.last_ghost_pos.iter().enumerate() {
+        // last ghost pos is not useful information because between most updates in real competition,
+        // the ghosts don't move. In the future, the ai should be given the ghost's next position
+        // based on the direction it is facing
+        for (i, pos) in /* self.last_ghost_pos */ new_ghost_pos.iter().enumerate() {
             if let Some(pos) = pos {
                 last_ghost[(i, pos.0, pos.1)] = 1.0;
             }

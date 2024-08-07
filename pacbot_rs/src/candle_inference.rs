@@ -28,42 +28,8 @@ impl CandleInference {
         Self { net, gym: PacmanGym::new(false, false), configuration }
     }
 
-    /// Information from the previous game state is used during inference. If you plan on
-    /// running inference on a game state that is not a continuation of the previous inference,
-    /// use this method or [`CandleInference::get_actions_with_previous`] to provide the previous
-    /// game state.
-    pub fn reset_with_state(&mut self, game_state: GameState) {
-        self.gym = PacmanGym::new_with_state(self.configuration, game_state);
-    }
-
     /// Given a game state, find the reward the model predicts for each action. Indices available
     /// in [`Action`].
-    ///
-    /// Information from the previous game state is used during inference. If you plan on
-    /// running inference on a game state that is not a continuation of the previous inference,
-    /// use this method or [`CandleInference::reset_with_state`] to provide the previous
-    /// game state.
-    ///
-    /// If no action mask is provided, will use the one from training. A more advanced variant can
-    /// be obtained from [`CandleInference::complex_action_mask`] which takes into account ghost
-    /// locations.
-    pub fn get_actions_with_previous(
-        &mut self,
-        previous: GameState,
-        game_state: GameState,
-        action_mask: Option<[bool; 5]>,
-    ) -> (Action, [f32; 5]) {
-        self.reset_with_state(previous);
-        self.get_actions(game_state, action_mask)
-    }
-
-    /// Given a game state, find the reward the model predicts for each action. Indices available
-    /// in [`Action`].
-    ///
-    /// Information from the previous game state is used during inference. If you plan on
-    /// running inference on a game state that is not a continuation of the previous inference,
-    /// use [`CandleInference::get_actions_with_previous`] or [`CandleInference::reset_with_state`]
-    /// to provide the previous game state.
     ///
     /// If no action mask is provided, will use the one from training. A more advanced variant can
     /// be obtained from [`CandleInference::complex_action_mask`] which takes into account ghost
@@ -72,8 +38,9 @@ impl CandleInference {
         &mut self,
         game_state: GameState,
         action_mask: Option<[bool; 5]>,
+        ticks_per_step: u32,
     ) -> (Action, [f32; 5]) {
-        self.gym.set_state(game_state);
+        self.gym.set_state(game_state, ticks_per_step);
 
         let obs_array = self.gym.obs();
         // 1 if masked, 0 if not

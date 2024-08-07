@@ -4,7 +4,7 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 use numpy::{IntoPyArray, PyArray3};
 use pacbot_rs_2::game_modes::GameMode;
 use pacbot_rs_2::game_state::GameState;
-use pacbot_rs_2::location::{Direction::*, LocationState};
+use pacbot_rs_2::location::{Direction, Direction::*, LocationState};
 use pacbot_rs_2::variables::{self, GHOST_FRIGHT_STEPS, INIT_LEVEL};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -53,6 +53,30 @@ impl Action {
     /// Panics if index is outside the range `0..5`.
     pub fn from_index(index: usize) -> Self {
         Self::try_from_primitive(index.try_into().unwrap()).unwrap()
+    }
+}
+
+impl From<Direction> for Action {
+    fn from(value: Direction) -> Self {
+        match value {
+            Up => Action::Up,
+            Left => Action::Left,
+            Down => Action::Down,
+            Right => Action::Right,
+            Stay => Action::Stay,
+        }
+    }
+}
+
+impl From<Action> for Direction {
+    fn from(value: Action) -> Self {
+        match value {
+            Action::Up => Up,
+            Action::Left => Left,
+            Action::Down => Down,
+            Action::Right => Right,
+            Action::Stay => Stay,
+        }
     }
 }
 

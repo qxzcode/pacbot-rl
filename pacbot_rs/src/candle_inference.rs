@@ -4,6 +4,7 @@ use crate::grid::coords_to_node;
 use candle_core::{Device, Module, Tensor, D};
 use candle_nn as nn;
 use pacbot_rs_2::game_state::GameState;
+use pacbot_rs_2::location::Direction;
 
 pub struct CandleInference {
     pub net: QNetV2,
@@ -39,7 +40,7 @@ impl CandleInference {
         game_state: GameState,
         action_mask: Option<[bool; 5]>,
         ticks_per_step: u32,
-    ) -> (Action, [f32; 5]) {
+    ) -> (Direction, [f32; 5]) {
         self.gym.set_state(game_state, ticks_per_step);
 
         let obs_array = self.gym.obs();
@@ -73,7 +74,12 @@ impl CandleInference {
         let chosen_action =
             actions[q_vals.argmax(D::Minus1).unwrap().to_scalar::<u32>().unwrap() as usize];
         let f32_q_vals = q_vals.to_vec1().unwrap();
-        (chosen_action, actions.map(|action| f32_q_vals[action as usize]))
+        let direction_q_vals = [0, 1, 2, 3, 4].map(|direction_idx| {
+            let direction = Direction::try_from(direction_idx).unwrap();
+            let action: Action = direction.into();
+            f32_q_vals[action as usize]
+        });
+        (chosen_action.into(), direction_q_vals)
     }
 
     /// Provides an action mask that takes into account ghost proximity.

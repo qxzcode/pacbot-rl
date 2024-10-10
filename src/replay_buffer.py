@@ -27,6 +27,32 @@ P = TypeVar("P", bound=Policy)
 # )
 DebugProbeGym = CartPoleGym
 
+from pacbot_rs import PacmanGym
+import models
+from policies import MaxQPolicy
+import safetensors.torch
+
+# Initialize the Q network for the old model.
+obs_shape = PacmanGym(random_start=True, random_ticks=True).obs_numpy().shape
+num_actions = 5
+q_net_old = models.QNetV2(obs_shape, num_actions).to("cpu")
+q_net_old.load_state_dict(safetensors.torch.load_file("checkpoints/q_net-old.safetensors"))
+q_net_old.eval()
+policy_old = MaxQPolicy(q_net_old)
+
+
+def reset_env(env: PacmanGym) -> None:
+    env.reset()
+
+    while not env.first_ai_done():
+        obs = torch.from_numpy(env.obs_numpy()).to("cpu").unsqueeze(0)
+        action_mask = torch.tensor(env.action_mask(), device="cpu").unsqueeze(0)
+        _, done = env.step(policy_old(obs, action_mask).item())
+
+        if done:
+            # the first ai died :( try again
+            env.reset()
+
 
 class ReplayBuffer(Generic[P]):
     """
@@ -47,11 +73,13 @@ class ReplayBuffer(Generic[P]):
 
         # Initialize the environments.
         self._envs = [
-            pacbot_rs.PacmanGym(random_start=i < num_parallel_envs * random_start_proportion)
+            pacbot_rs.PacmanGym(
+                random_start=i < num_parallel_envs * random_start_proportion, random_ticks=True
+            )
             for i in range(num_parallel_envs)
         ]
         for env in self._envs:
-            env.reset()
+            reset_env(env)
         self._last_obs = self._make_current_obs()
 
     def _make_current_obs(self) -> torch.Tensor:
@@ -103,7 +131,7 @@ class ReplayBuffer(Generic[P]):
 
             # Reset the environment if necessary and update last_obs.
             if next_obs is None:
-                env.reset()
+                reset_env(env)
                 next_obs_stack.append(torch.from_numpy(env.obs_numpy()).to(self.device))
             else:
                 next_obs_stack.append(next_obs)

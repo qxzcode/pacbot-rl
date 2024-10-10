@@ -7,16 +7,18 @@ import shutil
 import time
 import numpy as np
 
+import safetensors.torch
 import torch
 import torch.nn.functional as F
 import wandb
 from tqdm import tqdm
 
+
 from pacbot_rs import PacmanGym
 
 import models
 from policies import EpsilonGreedy, MaxQPolicy
-from replay_buffer import ReplayBuffer
+from replay_buffer import ReplayBuffer, reset_env
 from timing import time_block
 from utils import lerp
 
@@ -73,7 +75,7 @@ wandb.init(
 
 
 # Initialize the Q network.
-obs_shape = PacmanGym(random_start=True).obs_numpy().shape
+obs_shape = PacmanGym(random_start=True, random_ticks=True).obs_numpy().shape
 num_actions = 5
 model_class = getattr(models, wandb.config.model)
 q_net = model_class(obs_shape, num_actions).to(device)
@@ -84,14 +86,15 @@ if args.finetune:
 
 
 @torch.no_grad()
-def evaluate_episode(max_steps: int = 1000) -> tuple[int, int, bool]:
+def evaluate_episode(max_steps: int = 1000) -> tuple[int, int, bool, int, int]:
     """
     Performs a single evaluation episode.
 
-    Returns (score, total_steps, is_board_cleared).
+    Returns (score, total_steps, is_board_cleared, pellets_start, pellets_end).
     """
-    gym = PacmanGym(random_start=False)
-    gym.reset()
+    gym = PacmanGym(random_start=False, random_ticks=False)
+    reset_env(gym)
+    pellets_start = gym.remaining_pellets()
 
     q_net.eval()
     policy = MaxQPolicy(q_net)
@@ -104,7 +107,10 @@ def evaluate_episode(max_steps: int = 1000) -> tuple[int, int, bool]:
         if done:
             break
 
-    return (gym.score(), step_num, gym.lives() == 3)
+    is_board_cleared = done and gym.lives() == 3
+    pellets_end = 0 if is_board_cleared else gym.remaining_pellets()
+
+    return (gym.score(), step_num, is_board_cleared, pellets_start, pellets_end)
 
 
 def train():
@@ -214,11 +220,19 @@ def train():
             if iter_num % wandb.config.evaluate_steps == 0:
                 with time_block("Evaluate the current agent"):
                     # Evaluate the current agent.
-                    eval_episode_score, eval_episode_steps, cleared_board = evaluate_episode()
+                    (
+                        eval_episode_score,
+                        eval_episode_steps,
+                        cleared_board,
+                        pellets_start,
+                        pellets_end,
+                    ) = evaluate_episode()
                     metrics.update(
                         eval_episode_score=eval_episode_score,
                         eval_episode_steps=eval_episode_steps,
                         cleared_board=int(cleared_board),
+                        eval_pellets_start=pellets_start,
+                        eval_pellets_end=pellets_end,
                     )
             wandb.log(metrics)
 
@@ -227,11 +241,16 @@ def train():
                 # Save a checkpoint.
                 checkpoint_dir = Path(args.checkpoint_dir)
                 checkpoint_dir.mkdir(exist_ok=True)
-                torch.save(q_net, checkpoint_dir / "q_net-latest.pt")
-                shutil.copyfile(
-                    checkpoint_dir / "q_net-latest.pt",
-                    checkpoint_dir / f"q_net-iter{iter_num:07}.pt",
-                )
+                pt_path = checkpoint_dir / "q_net-latest.pt"
+                torch.save(q_net, pt_path)
+                shutil.copyfile(pt_path, checkpoint_dir / f"q_net-iter{iter_num:07}.pt")
+
+                if iter_num % 1_000 == 0:
+                    # Log checkpoints to WandB.
+                    safetensors_path = checkpoint_dir / "q_net-latest.safetensors"
+                    safetensors.torch.save_file(q_net.state_dict(), safetensors_path)
+                    wandb.log_artifact(safetensors_path, type="model")
+                    wandb.log_artifact(pt_path, type="model")
 
         # Anneal the exploration policy's epsilon.
         replay_buffer.policy.epsilon = lerp(
@@ -248,8 +267,8 @@ def train():
 
 @torch.no_grad()
 def visualize_agent():
-    gym = PacmanGym(random_start=False)
-    gym.reset()
+    gym = PacmanGym(random_start=False, random_ticks=False)
+    reset_env(gym)
 
     q_net.eval()
 

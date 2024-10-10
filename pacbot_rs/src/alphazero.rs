@@ -6,7 +6,7 @@ use numpy::PyArray3;
 use pyo3::prelude::*;
 
 use crate::{
-    game_state::env::PacmanGym,
+    env::PacmanGym,
     mcts::{eval_obs_batch, LeafEvaluation, MCTSContext},
 };
 
@@ -69,7 +69,7 @@ impl ExperienceCollector {
     pub fn new(evaluator: PyObject, config: AlphaZeroConfig) -> PyResult<Self> {
         let mcts_envs = (0..config.num_parallel_envs)
             .map(|_| {
-                let mut env = PacmanGym::new(true);
+                let mut env = PacmanGym::new(true, false);
                 env.reset();
                 Ok(ParallelEnv {
                     mcts_context: MCTSContext::new(env, evaluator.clone())?,
